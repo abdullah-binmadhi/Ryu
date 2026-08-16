@@ -2,8 +2,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ui="clr-namespace:FluentAvalonia.UI.Controls;assembly=FluentAvalonia"
-    xmlns:ext="clr-namespace:Ryujinx.Ava.Common.Markup"
-    xmlns:windowing="clr-namespace:FluentAvalonia.UI.Windowing;assembly=FluentAvalonia">
+    xmlns:ext="clr-namespace:Ryujinx.Ava.Common.Markup">
     <Design.PreviewWith>
         <Border Height="2000"
                 Padding="20">
@@ -37,12 +36,12 @@
                             Width="100"
                             VerticalAlignment="Center"
                             Text="Rrrrr"
-                            UseFloatingWatermark="True"
-                            Watermark="Hello" />
+                            UseFloatingPlaceholder="True"
+                            PlaceholderText="Hello" />
                         <CheckBox>Test Check</CheckBox>
                     </StackPanel>
                 </Grid>
-                <ui:NumberBox Value="1" />
+                <ui:FANumberBox Value="1" />
                 <MenuItem
                     Header="123 0000"
                     ToolTip.Tip="What this"/>
@@ -248,9 +247,9 @@
         <Setter Property="BorderBrush"
                 Value="{DynamicResource HighlightBrush}" />
     </Style>
-    <Style Selector="Button:not(windowing|MinMaxCloseControl Button)">
+    <Style Selector="Button">
         <Setter Property="MinWidth"
-                Value="80" />
+                Value="0" />
     </Style>
     <Style Selector="ProgressBar:horizontal">
         <Setter Property="MinWidth" Value="0"/>
