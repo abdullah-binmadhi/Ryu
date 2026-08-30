@@ -158,7 +158,7 @@ namespace Ryujinx.Headless
             else if (IsFullscreen)
             {
                 DefaultFlags = SDL_WindowFlags.SDL_WINDOW_HIGH_PIXEL_DENSITY;
-                FullscreenFlag = SDL_WindowFlags.SDL_WINDOW_BORDERLESS;
+                FullscreenFlag = SDL_WindowFlags.SDL_WINDOW_FULLSCREEN;
             }
 
             SDL_PropertiesID props = SDL_CreateProperties();
@@ -181,6 +181,11 @@ namespace Ryujinx.Headless
                 throw new Exception(errorMessage);
             }
 
+            if (IsFullscreen || IsExclusiveFullscreen)
+            {
+                SDL_SetWindowFullscreen(WindowHandle, true);
+            }
+
             _windowId = SDL_GetWindowID(WindowHandle);
             SDL3Driver.Instance.RegisterWindow(_windowId, HandleWindowEvent);
 
@@ -188,21 +193,57 @@ namespace Ryujinx.Headless
             TerminalHud.Start(titleNameSection.TrimStart('-', ' '));
         }
 
+        public void ToggleFullscreen()
+        {
+            IsFullscreen = !IsFullscreen;
+            SDL_SetWindowFullscreen(WindowHandle, IsFullscreen);
+        }
+
         private void HandleWindowEvent(SDL_Event evnt)
         {
+            if (evnt.Type == SDL_EventType.SDL_EVENT_QUIT || evnt.Type == SDL_EventType.SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+            {
+                Exit();
+                return;
+            }
+
+            if (evnt.Type == SDL_EventType.SDL_EVENT_KEY_DOWN)
+            {
+                SDL_Keymod mod = evnt.key.mod;
+                SDL_Keycode key = evnt.key.key;
+
+                // Handle Cmd+Q (macOS) or Alt+F4 / Ctrl+Q (Windows/Linux)
+                bool isMacQuit = OperatingSystem.IsMacOS() && (mod.HasFlag(SDL_Keymod.SDL_KMOD_GUI) || mod.HasFlag(SDL_Keymod.SDL_KMOD_CTRL)) && key == SDL_Keycode.SDLK_Q;
+                bool isWinQuit = (mod.HasFlag(SDL_Keymod.SDL_KMOD_ALT) && key == SDL_Keycode.SDLK_F4) || (mod.HasFlag(SDL_Keymod.SDL_KMOD_CTRL) && key == SDL_Keycode.SDLK_Q);
+
+                if (isMacQuit || isWinQuit)
+                {
+                    Exit();
+                    return;
+                }
+
+                // Handle Fullscreen Toggle: F11 or Cmd+F (macOS) or Alt+Enter
+                bool isFullscreenToggle = key == SDL_Keycode.SDLK_F11 ||
+                    (OperatingSystem.IsMacOS() && mod.HasFlag(SDL_Keymod.SDL_KMOD_GUI) && key == SDL_Keycode.SDLK_F) ||
+                    (mod.HasFlag(SDL_Keymod.SDL_KMOD_ALT) && key == SDL_Keycode.SDLK_RETURN);
+
+                if (isFullscreenToggle)
+                {
+                    ToggleFullscreen();
+                    return;
+                }
+            }
+
             if ((uint)evnt.Type >= (uint)SDL_EventType.SDL_EVENT_WINDOW_FIRST && (uint)evnt.Type <= (uint)SDL_EventType.SDL_EVENT_WINDOW_LAST)
             {
                 switch (evnt.Type)
                 {
                     case SDL_EventType.SDL_EVENT_WINDOW_RESIZED:
-                        if (!IsFullscreen && !IsExclusiveFullscreen)
-                        {
-                            Width = evnt.window.data1;
-                            Height = evnt.window.data2;
-                            Renderer?.Window.SetSize(Width, Height);
-                            MouseDriver.SetClientSize(Width, Height);
-                        }
-
+                    case SDL_EventType.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+                        Width = evnt.window.data1;
+                        Height = evnt.window.data2;
+                        Renderer?.Window.SetSize(Width, Height);
+                        MouseDriver.SetClientSize(Width, Height);
                         break;
 
                     case SDL_EventType.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
