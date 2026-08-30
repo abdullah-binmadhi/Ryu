@@ -242,8 +242,8 @@ namespace Ryujinx.Headless
                     case SDL_EventType.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
                         Width = evnt.window.data1;
                         Height = evnt.window.data2;
-                        Renderer?.Window.SetSize(Width, Height);
-                        MouseDriver.SetClientSize(Width, Height);
+                        Renderer?.Window?.SetSize(Width, Height);
+                        MouseDriver?.SetClientSize(Width, Height);
                         break;
 
                     case SDL_EventType.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
@@ -253,7 +253,7 @@ namespace Ryujinx.Headless
             }
             else
             {
-                MouseDriver.Update(evnt);
+                MouseDriver?.Update(evnt);
             }
         }
 
@@ -269,18 +269,18 @@ namespace Ryujinx.Headless
 
         private string GetGpuDriverName()
         {
-            return Renderer.GetHardwareInfo().GpuDriver;
+            return Renderer?.GetHardwareInfo().GpuDriver ?? "Default";
         }
 
         private void SetAntiAliasing()
         {
-            Renderer?.Window.SetAntiAliasing(AntiAliasing);
+            Renderer?.Window?.SetAntiAliasing(AntiAliasing);
         }
 
         private void SetScalingFilter()
         {
-            Renderer?.Window.SetScalingFilter(ScalingFilter);
-            Renderer?.Window.SetScalingFilterLevel(ScalingFilterLevel);
+            Renderer?.Window?.SetScalingFilter(ScalingFilter);
+            Renderer?.Window?.SetScalingFilterLevel(ScalingFilterLevel);
         }
 
         public void Render()
