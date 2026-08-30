@@ -177,8 +177,15 @@ namespace Ryujinx.Headless
             return new OpenGLRenderer();
         }
 
-        private static Switch InitializeEmulationContext(WindowBase window, IRenderer renderer, Options options) =>
-            new(
+        private static Switch InitializeEmulationContext(WindowBase window, IRenderer renderer, Options options)
+        {
+            if (options.TargetFps > 0)
+            {
+                options.VSyncMode = VSyncMode.Custom;
+                options.CustomVSyncInterval = options.TargetFps;
+            }
+
+            return new(
                 new HleConfiguration(
                         options.DramSize,
                         options.SystemLanguage,
@@ -218,5 +225,6 @@ namespace Ryujinx.Headless
                         window
                     )
             );
+        }
     }
 }

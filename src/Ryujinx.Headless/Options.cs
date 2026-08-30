@@ -312,6 +312,9 @@ namespace Ryujinx.Headless
         [Option("vsync-mode", Required = false, Default = VSyncMode.Switch, HelpText = "Sets the emulated VSync mode (Switch, Unbounded, or Custom).")]
         public VSyncMode VSyncMode { get; set; }
 
+        [Option("target-fps", Required = false, Default = 0, HelpText = "Sets the target framerate (e.g. 30, 60, 120). Automatically configures presentation timing and custom refresh.")]
+        public int TargetFps { get; set; }
+
         [Option("custom-refresh-rate", Required = false, Default = 90, HelpText = "Sets the custom refresh rate target value (integer).")]
         public int CustomVSyncInterval { get; set; }
 
