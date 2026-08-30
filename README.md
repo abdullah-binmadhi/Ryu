@@ -14,6 +14,7 @@ By eliminating desktop user interface abstractions and integrating directly with
 3. [System Keys and Firmware Installation](#system-keys-and-firmware-installation)
 4. [Execution and Configuration Workflows](#execution-and-configuration-workflows)
    * [Basic Launch](#basic-launch)
+   * [Target Framerate and Presentation Cadence (30 / 60 / 120 FPS)](#target-framerate-and-presentation-cadence-30--60--120-fps)
    * [Command-Line Parameters vs Persistent Defaults](#command-line-parameters-vs-persistent-defaults)
    * [Live In-Session Controls](#live-in-session-controls)
    * [High-Resolution Scaling and Post-Processing](#high-resolution-scaling-and-post-processing)
@@ -23,6 +24,8 @@ By eliminating desktop user interface abstractions and integrating directly with
    * [Mouse and Pointer Input](#mouse-and-pointer-input)
 6. [Graphics Pipeline and Display Synchronization](#graphics-pipeline-and-display-synchronization)
 7. [Data Hierarchy, Saves, and Modifications](#data-hierarchy-saves-and-modifications)
+   * [Directory Structure](#directory-structure)
+   * [Installing 60 FPS and Visual Patches](#installing-60-fps-and-visual-patches)
 8. [Command Line Reference](#command-line-reference)
 9. [Diagnostic Procedures and Troubleshooting](#diagnostic-procedures-and-troubleshooting)
 
@@ -157,6 +160,24 @@ Provide the path to the game image (`.xci`, `.nsp`, `.nca`, or `.nro`):
 
 ---
 
+### Target Framerate and Presentation Cadence (30 / 60 / 120 FPS)
+Ryu supports dynamic hardware display cadence configuration via the `--target-fps` argument:
+
+* **60 FPS Presentation Target (Fluid Motion):**
+  ```bash
+  Ryu "Game.xci" --target-fps 60
+  ```
+* **Native 30 FPS Presentation Target (Standard Timing):**
+  ```bash
+  Ryu "Game.xci" --target-fps 30
+  ```
+* **120 FPS Target (Apple ProMotion & High-Refresh Displays):**
+  ```bash
+  Ryu "Game.xci" --target-fps 120
+  ```
+
+---
+
 ### Command-Line Parameters vs Persistent Defaults
 
 Ryu provides two complementary methods for configuring runtime behavior:
@@ -166,7 +187,7 @@ Command-line arguments configure the graphics pipeline and emulator subsystems f
 1. Terminate the active game session (`Command + Q` on macOS; `Alt + F4` on Windows).
 2. Execute the launch command with the updated arguments:
    ```bash
-   ./distribution/publish/osx-arm64/Ryu "Game.xci" --resolution-scale 2 --scaling-filter Fsr --scaling-filter-level 85
+   ./distribution/publish/osx-arm64/Ryu "Game.xci" --target-fps 60 --resolution-scale 2 --scaling-filter Fsr --scaling-filter-level 85
    ```
 *(Opening a secondary terminal tab while a game is running is unnecessary, as runtime hardware pipelines are initialized upon process creation).*
 
@@ -312,11 +333,20 @@ portable/
 ### Save Data Management
 Game saves are maintained under `portable/bis/user/save/`. Backups can be performed by copying this folder to an external location.
 
-### Applying Game Modifications and 60 FPS Patches
-1. Identify the Title ID of the target title.
-2. Create the directory `portable/mods/contents/<TitleID>/`.
-3. Place the modification files within the corresponding `romfs/` or `exefs/` subdirectories.
-4. Launch the game normally; Ryu loads and patches the data structures during initialization.
+### Installing 60 FPS and Visual Patches
+Ryu includes native support for IPS binary patches (`.ips`) and IPSwitch text patches (`.pchtxt`), including all community patches distributed in standard mod repositories (such as the Yuzu Mod Archive):
+
+1. Identify the **Title ID** of the game (for example, `010051F0207B2000`).
+2. Create the target mod path in the portable directory:
+   ```text
+   portable/mods/contents/<TitleID>/exefs/
+   ```
+3. Copy the patch file (`60fps.pchtxt`, `4k.pchtxt`, or `.ips` binary) into the `exefs/` folder.
+4. Launch the title with `--target-fps 60`:
+   ```bash
+   Ryu "Game.xci" --target-fps 60
+   ```
+Ryu automatically validates the patch build identifier against the running game executable in memory, unlocks the target framerate, and corrects game engine delta physics without causing fast-forward distortion.
 
 ---
 
@@ -325,6 +355,7 @@ Game saves are maintained under `portable/bis/user/save/`. Backups can be perfor
 | Option | Type / Default | Description | Example Usage |
 | :--- | :--- | :--- | :--- |
 | `<input>` | `String` *(Required)* | File system path to the application image (`.xci`, `.nsp`, `.nca`, `.nro`). | `Ryu "game.xci"` |
+| `--target-fps` | `Integer` (`0` = Default) | Configures presentation cadence and refresh target (`30`, `60`, `120`). | `--target-fps 60` |
 | `--fullscreen` | `Boolean` (`false`) | Initializes the render viewport in borderless fullscreen mode. | `--fullscreen` |
 | `--resolution-scale` | `Float` (`1.0`) | Render target resolution scaling factor (`1` = 720p/1080p, `2` = 1440p/4K). | `--resolution-scale 2` |
 | `--anti-aliasing` | `Enum` (`None`) | Anti-aliasing method (`None`, `Fxaa`, `SmaaLow`, `SmaaMedium`, `SmaaHigh`, `SmaaUltra`). | `--anti-aliasing SmaaUltra` |
@@ -355,7 +386,7 @@ Game saves are maintained under `portable/bis/user/save/`. Backups can be perfor
 ### 3. Real-Time Telemetry Inspection
 Ryu provides a continuous ANSI terminal HUD reporting engine state:
 ```text
-[Ryu] FPS:  30.0 (33.3ms) | 1% Low:  28.8 | RAM: 2950 MB | Thermal: Nominal | Uptime: 00:15
+[Ryu] FPS:  60.0 (16.6ms) | 1% Low:  58.2 | RAM: 2950 MB | Thermal: Nominal | Uptime: 00:15
 ```
 * **FPS / Frame Time:** Indicates instantaneous render cadence and frame time variance.
 * **1% Low:** Measures consistency of frame pacing.
