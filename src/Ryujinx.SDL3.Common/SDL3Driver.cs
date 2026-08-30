@@ -1,5 +1,6 @@
 using Ryujinx.Common.Configuration;
 using Ryujinx.Common.Logging;
+using Ryujinx.Common.SystemInterop;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -58,11 +59,19 @@ namespace Ryujinx.SDL3.Common
                     return;
                 }
 
-                SDL_SetHint(SDL_HINT_APP_NAME, "Ryujinx");
-                SDL_SetHint(SDL_HINT_JOYSTICK_ENHANCED_REPORTS , "1");
+                SDL_SetHint(SDL_HINT_APP_NAME, "Ryu");
+                SDL_SetHint(SDL_HINT_JOYSTICK_THREAD, "1");
+                SDL_SetHint(SDL_HINT_JOYSTICK_MFI, "1");
+                SDL_SetHint(SDL_HINT_JOYSTICK_ENHANCED_REPORTS, "1");
                 SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
-                SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_SWITCH_HOME_LED, "0");
+                SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
+                SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_SWITCH, "1");
                 SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_JOY_CONS, "1");
+                SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_SWITCH_HOME_LED, "0");
+                SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "1");
+                SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
+                SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX, "1");
+                SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
                 SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1");
 
                 // NOTE: As of SDL3 2.24.0, joycons are combined by default but the motion source only come from one of them.
@@ -193,7 +202,12 @@ namespace Ryujinx.SDL3.Common
 
         private unsafe void EventWorker()
         {
-            const int WaitTimeMs = 10;
+            if (OperatingSystem.IsMacOS())
+            {
+                DarwinThreadScheduler.SetInteractiveQoS();
+            }
+
+            const int WaitTimeMs = 1;
 
             using ManualResetEventSlim waitHandle = new(false);
 

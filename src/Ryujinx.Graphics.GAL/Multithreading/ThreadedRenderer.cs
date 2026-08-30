@@ -105,7 +105,15 @@ namespace Ryujinx.Graphics.GAL.Multithreading
 
             _backendThread = Thread.CurrentThread;
 
-            _gpuThread = new Thread(gpuLoop)
+            _gpuThread = new Thread(() =>
+            {
+                if (OperatingSystem.IsMacOS())
+                {
+                    Ryujinx.Common.SystemInterop.DarwinThreadScheduler.SetInteractiveQoS();
+                }
+
+                gpuLoop();
+            })
             {
                 Name = "GPU.MainThread",
             };
@@ -117,6 +125,11 @@ namespace Ryujinx.Graphics.GAL.Multithreading
 
         public void RenderLoop()
         {
+            if (OperatingSystem.IsMacOS())
+            {
+                Ryujinx.Common.SystemInterop.DarwinThreadScheduler.SetInteractiveQoS();
+            }
+
             // Power through the render queue until the Gpu thread work is done.
 
             while (_running)

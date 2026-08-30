@@ -177,6 +177,11 @@ namespace Ryujinx.Audio.Renderer.Dsp
 
         private void Work()
         {
+            if (OperatingSystem.IsMacOS())
+            {
+                Ryujinx.Common.SystemInterop.DarwinThreadScheduler.SetInteractiveQoS();
+            }
+
             if (_mailbox.ReceiveMessage() != MailboxMessage.Start)
             {
                 throw new InvalidOperationException("Audio Processor Start message was invalid!");

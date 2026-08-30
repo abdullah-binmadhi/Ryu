@@ -23,12 +23,30 @@ namespace Ryujinx.Graphics.Vulkan.MoltenVK
 
             vkGetMoltenVKConfigurationMVK(nint.Zero, out MVKConfiguration config, configSize);
 
+            // 1. Metal Argument Buffers (Tier 2 fast descriptors)
             config.UseMetalArgumentBuffers = true;
 
+            // 2. Prefill Command Buffers (Zero Driver Stutters on CPU)
+            config.PrefillMetalCommandBuffers = true;
+
+            // 3. Fast-Math Shader Acceleration (High Arithmetic Throughput on Apple Silicon)
+            config.FastMathEnabled = true;
+
+            // 4. Memory Heap Pooling & Descriptor Preallocation (Reduces kernel-level vm_allocate syscalls)
+            config.UseMTLHeap = true;
+            config.UseCommandPooling = true;
+            config.PreallocateDescriptors = true;
+            config.MaxActiveMetalCommandBuffersPerQueue = 64;
+
+            // 5. Asynchronous Queue Submits (Zero Spin-Wait CPU Blocking)
             config.SemaphoreSupportStyle = MVKVkSemaphoreSupportStyle.MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE_SINGLE_QUEUE;
             config.SynchronousQueueSubmits = false;
 
+            // 6. Device Lost Recovery Hook
             config.ResumeLostDevice = true;
+
+            // 7. Minimal Logging overhead
+            config.LogLevel = MVKConfigLogLevel.Error;
 
             vkSetMoltenVKConfigurationMVK(nint.Zero, config, configSize);
         }

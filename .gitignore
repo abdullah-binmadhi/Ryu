@@ -188,3 +188,18 @@ PublishProfiles/
 # Ignore distribution build files
 distribution/macos/temp/
 distribution/macos/output/
+
+# Privacy & Emulation Assets (Keys, ROMs, Firmware dumps)
+nintendo games/
+portable/
+distribution/publish/
+*.keys
+*.xci
+*.nsp
+*.nca
+*.nro
+*.nso
+prod.keys
+title.keys
+
+

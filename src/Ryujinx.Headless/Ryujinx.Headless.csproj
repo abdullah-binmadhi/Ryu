@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RuntimeIdentifiers>win-x64;osx-x64;linux-x64;win-arm64;osx-arm64;linux-arm64;</RuntimeIdentifiers>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Ryu</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>1.0.0-headless</Version>
+    <DefineConstants Condition=" '$(ExtraDefineConstants)' != '' ">$(DefineConstants);$(ExtraDefineConstants)</DefineConstants>
+    <SigningCertificate Condition=" '$(SigningCertificate)' == '' ">-</SigningCertificate>
+    <TieredPGO>true</TieredPGO>
+    <TieredCompilation>true</TieredCompilation>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <OptimizationPreference>Speed</OptimizationPreference>
+    <ApplicationIcon>..\Ryujinx\Ryujinx.ico</ApplicationIcon>
+    <DefaultItemExcludes>$(DefaultItemExcludes);._*</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <Target Name="RemoveNativePackagePdbs" AfterTargets="ResolvePackageAssets">
+    <ItemGroup Condition="'$(Configuration)'=='Release'">
+      <NativeCopyLocalItems Remove="@(NativeCopyLocalItems)" Condition="'%(Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <Exec Command="codesign --entitlements '$(ProjectDir)..\..\distribution\macos\entitlements.xml' -f -s $(SigningCertificate) '$(TargetDir)$(TargetName)'" />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ryujinx.Common\Ryujinx.Common.csproj" />
+    <ProjectReference Include="..\Ryujinx.Cpu\Ryujinx.Cpu.csproj" />
+    <ProjectReference Include="..\Ryujinx.Memory\Ryujinx.Memory.csproj" />
+    <ProjectReference Include="..\Ryujinx.HLE\Ryujinx.HLE.csproj" />
+    <ProjectReference Include="..\Ryujinx.Graphics.GAL\Ryujinx.Graphics.GAL.csproj" />
+    <ProjectReference Include="..\Ryujinx.Graphics.Gpu\Ryujinx.Graphics.Gpu.csproj" />
+    <ProjectReference Include="..\Ryujinx.Graphics.Vulkan\Ryujinx.Graphics.Vulkan.csproj" />
+    <ProjectReference Include="..\Ryujinx.Graphics.OpenGL\Ryujinx.Graphics.OpenGL.csproj" />
+    <ProjectReference Include="..\Ryujinx.Audio\Ryujinx.Audio.csproj" />
+    <ProjectReference Include="..\Ryujinx.Audio.Backends.Apple\Ryujinx.Audio.Backends.Apple.csproj" />
+    <ProjectReference Include="..\Ryujinx.Audio.Backends.SDL3\Ryujinx.Audio.Backends.SDL3.csproj" />
+    <ProjectReference Include="..\Ryujinx.Input\Ryujinx.Input.csproj" />
+    <ProjectReference Include="..\Ryujinx.Input.SDL3\Ryujinx.Input.SDL3.csproj" />
+    <ProjectReference Include="..\Ryujinx.SDL3.Common\Ryujinx.SDL3.Common.csproj" />
+    <ProjectReference Include="..\ARMeilleure\ARMeilleure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Ryujinx\Systems\Configuration\**\*.cs" Link="Configuration\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommandLineParser" />
+    <PackageReference Include="Gommon" />
+    <PackageReference Include="Humanizer" />
+    <PackageReference Include="Ryujinx.LibHac" />
+    <PackageReference Include="Ryujinx.SDL3-CS" />
+    <PackageReference Include="OpenTK.Core" />
+    <PackageReference Include="Ryujinx.Graphics.Nvdec.Dependencies.AllArch" />
+    <PackageReference Include="Ryujinx.Graphics.Vulkan.MoltenVK" Condition="'$(RuntimeIdentifier)' != 'linux-x64' AND '$(RuntimeIdentifier)' != 'linux-arm64' AND '$(RuntimeIdentifier)' != 'win-x64' AND '$(RuntimeIdentifier)' != 'win-arm64'" />
+    <PackageReference Include="Silk.NET.Vulkan" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.EXT" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" />
+  </ItemGroup>
+</Project>

@@ -1,10 +1,14 @@
 using System;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 
 namespace Ryujinx.Audio.Renderer.Dsp
 {
     public static class PcmHelper
     {
+        private const float Int16ToFloatMultiplier = 1.0f / short.MaxValue;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int GetCountToDecode(int startSampleOffset, int endSampleOffset, int offset, int count)
         {
@@ -31,7 +35,7 @@ namespace Ryujinx.Audio.Renderer.Dsp
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float ConvertSampleToPcmFloat(short sample)
         {
-            return (float)sample / short.MaxValue;
+            return (float)sample * Int16ToFloatMultiplier;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -64,7 +68,28 @@ namespace Ryujinx.Audio.Renderer.Dsp
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ConvertSampleToPcm32(Span<int> output, ReadOnlySpan<short> input)
         {
-            for (int i = 0; i < input.Length; i++)
+            int i = 0;
+
+            if (Vector128.IsHardwareAccelerated && input.Length >= 8)
+            {
+                int vectorCount = input.Length & ~7;
+                ref short inputRef = ref MemoryMarshal.GetReference(input);
+                ref int outputRef = ref MemoryMarshal.GetReference(output);
+
+                for (; i < vectorCount; i += 8)
+                {
+                    Vector128<short> samples = Vector128.LoadUnsafe(ref inputRef, (nuint)i);
+                    (Vector128<int> low, Vector128<int> high) = Vector128.Widen(samples);
+
+                    low = Vector128.ShiftLeft(low, 16);
+                    high = Vector128.ShiftLeft(high, 16);
+
+                    Vector128.StoreUnsafe(low, ref outputRef, (nuint)i);
+                    Vector128.StoreUnsafe(high, ref outputRef, (nuint)(i + 4));
+                }
+            }
+
+            for (; i < input.Length; i++)
             {
                 output[i] = input[i] << 16;
             }
@@ -73,7 +98,29 @@ namespace Ryujinx.Audio.Renderer.Dsp
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ConvertSampleToPcmFloat(Span<float> output, ReadOnlySpan<short> input)
         {
-            for (int i = 0; i < input.Length; i++)
+            int i = 0;
+
+            if (Vector128.IsHardwareAccelerated && input.Length >= 8)
+            {
+                int vectorCount = input.Length & ~7;
+                Vector128<float> scaleVec = Vector128.Create(Int16ToFloatMultiplier);
+                ref short inputRef = ref MemoryMarshal.GetReference(input);
+                ref float outputRef = ref MemoryMarshal.GetReference(output);
+
+                for (; i < vectorCount; i += 8)
+                {
+                    Vector128<short> samples = Vector128.LoadUnsafe(ref inputRef, (nuint)i);
+                    (Vector128<int> lowInt, Vector128<int> highInt) = Vector128.Widen(samples);
+
+                    Vector128<float> lowFloat = Vector128.ConvertToSingle(lowInt) * scaleVec;
+                    Vector128<float> highFloat = Vector128.ConvertToSingle(highInt) * scaleVec;
+
+                    Vector128.StoreUnsafe(lowFloat, ref outputRef, (nuint)i);
+                    Vector128.StoreUnsafe(highFloat, ref outputRef, (nuint)(i + 4));
+                }
+            }
+
+            for (; i < input.Length; i++)
             {
                 output[i] = ConvertSampleToPcmFloat(input[i]);
             }

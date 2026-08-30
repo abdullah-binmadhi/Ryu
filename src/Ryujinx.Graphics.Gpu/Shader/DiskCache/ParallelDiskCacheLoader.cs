@@ -533,6 +533,11 @@ namespace Ryujinx.Graphics.Gpu.Shader.DiskCache
         /// <param name="state">Cancellation token</param>
         private void ProcessAsyncQueue(object state)
         {
+            if (OperatingSystem.IsMacOS())
+            {
+                Ryujinx.Common.SystemInterop.DarwinThreadScheduler.SetBackgroundQoS();
+            }
+
             CancellationToken ct = (CancellationToken)state;
 
             try

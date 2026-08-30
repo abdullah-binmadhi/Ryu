@@ -1,5 +1,6 @@
 using ARMeilleure.State;
 using Ryujinx.Common.Logging;
+using Ryujinx.Common.SystemInterop;
 using Ryujinx.Cpu.AppleHv.Arm;
 using Ryujinx.Memory.Tracking;
 using System;
@@ -154,6 +155,11 @@ namespace Ryujinx.Cpu.AppleHv
 
         public unsafe void Execute(HvMemoryManager memoryManager, ulong address)
         {
+            if (OperatingSystem.IsMacOS())
+            {
+                DarwinThreadScheduler.SetInteractiveQoS();
+            }
+
             HvVcpu vcpu = HvVcpuPool.Instance.Create(memoryManager.AddressSpace, _shadowContext, SwapContext);
             HvApi.hv_vcpu_set_reg(vcpu.Handle, HvReg.PC, address).ThrowOnError();
 

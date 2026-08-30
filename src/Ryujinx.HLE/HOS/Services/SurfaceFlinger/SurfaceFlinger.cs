@@ -2,6 +2,7 @@ using Ryujinx.Common;
 using Ryujinx.Common.Configuration;
 using Ryujinx.Common.Logging;
 using Ryujinx.Common.PreciseSleep;
+using Ryujinx.Common.SystemInterop;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Gpu;
 using Ryujinx.HLE.HOS.Services.Nv.NvDrvServices.NvMap;
@@ -22,6 +23,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
         private bool _isRunning;
 
         private readonly Thread _composerThread;
+        private readonly CVDisplayLinkSync _displayLinkSync;
 
         private readonly AutoResetEvent _event = new(false);
         private readonly AutoResetEvent _nextFrameEvent = new(true);
@@ -61,6 +63,12 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
             _device = device;
             _layers = new Dictionary<long, Layer>();
             RenderLayerId = 0;
+
+            if (OperatingSystem.IsMacOS())
+            {
+                _displayLinkSync = new CVDisplayLinkSync();
+                _displayLinkSync.Start();
+            }
 
             _composerThread = new Thread(HandleComposition)
             {
@@ -297,6 +305,11 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
 
         private void HandleComposition()
         {
+            if (OperatingSystem.IsMacOS())
+            {
+                DarwinThreadScheduler.SetInteractiveQoS();
+            }
+
             _isRunning = true;
 
             long lastTicks = PerformanceCounter.ElapsedTicks;
@@ -335,21 +348,31 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
                         _ticks = Math.Min(_ticks - _ticksPerFrame, _ticksPerFrame * 3);
                     }
 
-                    // Sleep if possible. If the time til the next frame is too low, spin wait instead.
+                    // Sleep if possible.
                     long diff = _ticksPerFrame - (_ticks + PerformanceCounter.ElapsedTicks - ticks);
                     if (diff > 0)
                     {
-                        PreciseSleepHelper.SleepUntilTimePoint(_event, PerformanceCounter.ElapsedTicks + diff);
-
-                        diff = _ticksPerFrame - (_ticks + PerformanceCounter.ElapsedTicks - ticks);
-
-                        if (diff < _spinTicks)
+                        if (OperatingSystem.IsMacOS() && _displayLinkSync != null && _displayLinkSync.IsRunning)
                         {
-                            PreciseSleepHelper.SpinWaitUntilTimePoint(PerformanceCounter.ElapsedTicks + diff);
+                            // Hardware-synchronized Darwin CVDisplayLink ProMotion 120Hz pacing (0% CPU spin-wait)
+                            int targetFps = _swapInterval == 0 ? 60 : (_swapInterval == 1 ? 60 : 30);
+                            int cadence = _displayLinkSync.GetCadenceDivisor(targetFps);
+                            _displayLinkSync.WaitForVsyncCadence(cadence, (int)Math.Max(1, diff / _1msTicks));
                         }
                         else
                         {
-                            _event.WaitOne((int)(diff / _1msTicks));
+                            PreciseSleepHelper.SleepUntilTimePoint(_event, PerformanceCounter.ElapsedTicks + diff);
+
+                            diff = _ticksPerFrame - (_ticks + PerformanceCounter.ElapsedTicks - ticks);
+
+                            if (diff < _spinTicks)
+                            {
+                                PreciseSleepHelper.SpinWaitUntilTimePoint(PerformanceCounter.ElapsedTicks + diff);
+                            }
+                            else
+                            {
+                                _event.WaitOne((int)(diff / _1msTicks));
+                            }
                         }
                     }
                 }
@@ -524,6 +547,11 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
         public void Dispose()
         {
             _isRunning = false;
+
+            if (OperatingSystem.IsMacOS())
+            {
+                _displayLinkSync?.Dispose();
+            }
 
             foreach (Layer layer in _layers.Values)
             {

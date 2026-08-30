@@ -882,6 +882,11 @@ namespace ARMeilleure.Translation.PTC
 
             void TranslateFuncs()
             {
+                if (OperatingSystem.IsMacOS())
+                {
+                    Ryujinx.Common.SystemInterop.DarwinThreadScheduler.SetBackgroundQoS();
+                }
+
                 while (profiledFuncsToTranslate.TryDequeue(out (ulong address, PtcProfiler.FuncProfile funcProfile) item))
                 {
                     ulong address = item.address;
