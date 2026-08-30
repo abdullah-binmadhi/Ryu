@@ -79,6 +79,7 @@ namespace Ryujinx.Headless
         private long _ticks;
         private bool _isActive;
         private bool _isStopped;
+        private bool _lastFullscreenHotkeyDown;
         private SDL_WindowID _windowId;
 
         private string _gpuDriverName;
@@ -427,6 +428,35 @@ namespace Ryujinx.Headless
             if (!hasTouch)
             {
                 TouchScreenManager.Update(false);
+            }
+
+            // Check hardware hotkeys directly from SDL state
+            SDLBool* keyboardState = SDL_GetKeyboardState(null);
+            if (keyboardState != null)
+            {
+                SDL_Keymod mod = SDL_GetModState();
+                bool isGui = (mod & (SDL_Keymod.SDL_KMOD_GUI | SDL_Keymod.SDL_KMOD_CTRL)) != 0;
+                bool isAlt = (mod & SDL_Keymod.SDL_KMOD_ALT) != 0;
+
+                bool f11Pressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F11];
+                bool fPressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F];
+                bool returnPressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_RETURN];
+                bool qPressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_Q];
+
+                if (isGui && qPressed)
+                {
+                    Exit();
+                    return false;
+                }
+
+                bool isFullscreenHotkeyDown = f11Pressed || (isGui && fPressed) || (isAlt && returnPressed);
+
+                if (isFullscreenHotkeyDown && !_lastFullscreenHotkeyDown)
+                {
+                    ToggleFullscreen();
+                }
+
+                _lastFullscreenHotkeyDown = isFullscreenHotkeyDown;
             }
 
             Device.Hid.DebugPad.Update();
