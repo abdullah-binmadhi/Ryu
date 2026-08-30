@@ -12,7 +12,11 @@ By eliminating desktop user interface abstractions and integrating directly with
    * [macOS (Apple Silicon & Intel)](#macos-compilation-and-setup)
    * [Windows (x64 & ARM64)](#windows-compilation-and-setup)
 3. [System Keys and Firmware Installation](#system-keys-and-firmware-installation)
-4. [Execution and Runtime Options](#execution-and-runtime-options)
+4. [Execution and Configuration Workflows](#execution-and-configuration-workflows)
+   * [Basic Launch](#basic-launch)
+   * [Command-Line Parameters vs Persistent Defaults](#command-line-parameters-vs-persistent-defaults)
+   * [Live In-Session Controls](#live-in-session-controls)
+   * [High-Resolution Scaling and Post-Processing](#high-resolution-scaling-and-post-processing)
 5. [Input Subsystem and Controller Configuration](#input-subsystem-and-controller-configuration)
    * [Gamepad Support](#gamepad-support)
    * [Keyboard Layout and Bindings](#keyboard-layout-and-bindings)
@@ -136,7 +140,7 @@ Upon completion, the system firmware is automatically verified and unpacked into
 
 ---
 
-## Execution and Runtime Options
+## Execution and Configuration Workflows
 
 ### Basic Launch
 Provide the path to the game image (`.xci`, `.nsp`, `.nca`, or `.nro`):
@@ -151,26 +155,53 @@ Provide the path to the game image (`.xci`, `.nsp`, `.nca`, or `.nro`):
   ```
   *(Note: On Windows, game files can also be dragged and dropped directly onto `Ryu.exe`.)*
 
-### Fullscreen Execution
-```bash
-Ryu "Game.xci" --fullscreen
-```
+---
 
-### High-Resolution Render Scaling
-Enhance visual fidelity on high-density displays (e.g., Retina, 1440p, 4K) by adjusting the scaling factor:
-```bash
-# 2x Native Resolution Scaling (1440p / 4K target)
-Ryu "Game.xci" --resolution-scale 2
+### Command-Line Parameters vs Persistent Defaults
 
-# 3x Native Resolution Scaling
-Ryu "Game.xci" --resolution-scale 3
-```
+Ryu provides two complementary methods for configuring runtime behavior:
 
-### Post-Processing and FidelityFX Super Resolution (FSR)
-Apply spatial upscaling and sharpening filters:
-```bash
-Ryu "Game.xci" --scaling-filter Fsr --scaling-filter-level 80 --anti-aliasing SmaaUltra
-```
+#### 1. Per-Launch Command-Line Arguments (Dynamic)
+Command-line arguments configure the graphics pipeline and emulator subsystems for a single session. To change parameters:
+1. Terminate the active game session (`Command + Q` on macOS; `Alt + F4` on Windows).
+2. Execute the launch command with the updated arguments:
+   ```bash
+   ./distribution/publish/osx-arm64/Ryu "Game.xci" --resolution-scale 2 --scaling-filter Fsr --scaling-filter-level 85
+   ```
+*(Opening a secondary terminal tab while a game is running is unnecessary, as runtime hardware pipelines are initialized upon process creation).*
+
+#### 2. Persistent Defaults via `Config.json` (Static)
+To set permanent global defaults without passing arguments on every launch, edit the configuration file located at `portable/Config.json`:
+* `"res_scale": 2.0` (Permanently defaults to 2x resolution scaling).
+* `"scaling_filter": "Fsr"` (Permanently activates AMD FSR upscaling).
+* `"scaling_filter_level": 80` (Configures default sharpening strength).
+* `"enable_docked_mode": true` (Defaults to Switch Docked operational mode).
+
+Once saved, executing `Ryu "Game.xci"` without flags will automatically inherit these settings.
+
+---
+
+### Live In-Session Controls
+The following actions can be performed directly during active gameplay without restarting the application:
+* **Toggle Fullscreen Mode:** Press `Command + F` (macOS), `F11`, or `Alt + Enter` (Windows).
+* **Instant Process Termination:** Press `Command + Q` (macOS) or `Alt + F4` (Windows).
+
+---
+
+### High-Resolution Scaling and Post-Processing
+
+* **2x Native Resolution Scaling (1440p / 4K Target):**
+  ```bash
+  Ryu "Game.xci" --resolution-scale 2
+  ```
+* **3x Native Resolution Scaling (High-End Discrete GPUs):**
+  ```bash
+  Ryu "Game.xci" --resolution-scale 3
+  ```
+* **AMD FidelityFX Super Resolution (FSR) and Anti-Aliasing:**
+  ```bash
+  Ryu "Game.xci" --scaling-filter Fsr --scaling-filter-level 80 --anti-aliasing SmaaUltra
+  ```
 
 ---
 
