@@ -188,7 +188,7 @@ namespace Ryujinx.SDL3.Common
             {
                 OnJoyBatteryUpdated?.Invoke(evnt.jbutton.which, evnt.jbattery.state);
             }
-            else if (type == SDL_EventType.SDL_EVENT_QUIT)
+            else if (type is SDL_EventType.SDL_EVENT_QUIT or SDL_EventType.SDL_EVENT_KEY_DOWN or SDL_EventType.SDL_EVENT_KEY_UP)
             {
                 foreach (var handler in _registeredWindowHandlers.Values)
                 {
@@ -197,12 +197,19 @@ namespace Ryujinx.SDL3.Common
             }
             else if (
                 ((uint)type >= (uint)SDL_EventType.SDL_EVENT_WINDOW_FIRST && (uint)type <= (uint)SDL_EventType.SDL_EVENT_WINDOW_LAST) ||
-                type is SDL_EventType.SDL_EVENT_MOUSE_BUTTON_DOWN or SDL_EventType.SDL_EVENT_MOUSE_BUTTON_UP or SDL_EventType.SDL_EVENT_KEY_DOWN or SDL_EventType.SDL_EVENT_KEY_UP
+                type is SDL_EventType.SDL_EVENT_MOUSE_BUTTON_DOWN or SDL_EventType.SDL_EVENT_MOUSE_BUTTON_UP
             )
             {
                 if (_registeredWindowHandlers.TryGetValue(evnt.window.windowID, out Action<SDL_Event> handler))
                 {
                     handler(evnt);
+                }
+                else
+                {
+                    foreach (var h in _registeredWindowHandlers.Values)
+                    {
+                        h(evnt);
+                    }
                 }
             }
         }

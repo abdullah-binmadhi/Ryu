@@ -74,7 +74,6 @@ namespace Ryujinx.Headless
         private readonly Stopwatch _chrono;
         private readonly long _ticksPerFrame;
         private readonly CancellationTokenSource _gpuCancellationTokenSource;
-        private readonly ManualResetEvent _exitEvent;
         private readonly ManualResetEvent _gpuDoneEvent;
 
         private long _ticks;
@@ -106,7 +105,6 @@ namespace Ryujinx.Headless
             _chrono = new Stopwatch();
             _ticksPerFrame = Stopwatch.Frequency / TargetFps;
             _gpuCancellationTokenSource = new CancellationTokenSource();
-            _exitEvent = new ManualResetEvent(false);
             _gpuDoneEvent = new ManualResetEvent(false);
             _aspectRatio = aspectRatio;
             _enableMouse = enableMouse;
@@ -195,8 +193,17 @@ namespace Ryujinx.Headless
 
         public void ToggleFullscreen()
         {
-            IsFullscreen = !IsFullscreen;
-            SDL_SetWindowFullscreen(WindowHandle, IsFullscreen);
+            if (WindowHandle == null)
+            {
+                return;
+            }
+
+            SDL_WindowFlags currentFlags = SDL_GetWindowFlags(WindowHandle);
+            bool isCurrentlyFullscreen = (currentFlags & SDL_WindowFlags.SDL_WINDOW_FULLSCREEN) != 0;
+            bool targetFullscreen = !isCurrentlyFullscreen;
+
+            SDL_SetWindowFullscreen(WindowHandle, targetFullscreen);
+            IsFullscreen = targetFullscreen;
         }
 
         private void HandleWindowEvent(SDL_Event evnt)
@@ -211,10 +218,15 @@ namespace Ryujinx.Headless
             {
                 SDL_Keymod mod = evnt.key.mod;
                 SDL_Keycode key = evnt.key.key;
+                SDL_Scancode scancode = evnt.key.scancode;
+
+                bool isGui = (mod & (SDL_Keymod.SDL_KMOD_GUI | SDL_Keymod.SDL_KMOD_CTRL)) != 0;
+                bool isAlt = (mod & SDL_Keymod.SDL_KMOD_ALT) != 0;
 
                 // Handle Cmd+Q (macOS) or Alt+F4 / Ctrl+Q (Windows/Linux)
-                bool isMacQuit = OperatingSystem.IsMacOS() && (mod.HasFlag(SDL_Keymod.SDL_KMOD_GUI) || mod.HasFlag(SDL_Keymod.SDL_KMOD_CTRL)) && key == SDL_Keycode.SDLK_Q;
-                bool isWinQuit = (mod.HasFlag(SDL_Keymod.SDL_KMOD_ALT) && key == SDL_Keycode.SDLK_F4) || (mod.HasFlag(SDL_Keymod.SDL_KMOD_CTRL) && key == SDL_Keycode.SDLK_Q);
+                bool isMacQuit = OperatingSystem.IsMacOS() && isGui && (key == SDL_Keycode.SDLK_Q || scancode == SDL_Scancode.SDL_SCANCODE_Q);
+                bool isWinQuit = (isAlt && (key == SDL_Keycode.SDLK_F4 || scancode == SDL_Scancode.SDL_SCANCODE_F4)) ||
+                                 (isGui && (key == SDL_Keycode.SDLK_Q || scancode == SDL_Scancode.SDL_SCANCODE_Q));
 
                 if (isMacQuit || isWinQuit)
                 {
@@ -222,10 +234,10 @@ namespace Ryujinx.Headless
                     return;
                 }
 
-                // Handle Fullscreen Toggle: F11 or Cmd+F (macOS) or Alt+Enter
-                bool isFullscreenToggle = key == SDL_Keycode.SDLK_F11 ||
-                    (OperatingSystem.IsMacOS() && mod.HasFlag(SDL_Keymod.SDL_KMOD_GUI) && key == SDL_Keycode.SDLK_F) ||
-                    (mod.HasFlag(SDL_Keymod.SDL_KMOD_ALT) && key == SDL_Keycode.SDLK_RETURN);
+                // Handle Fullscreen Toggle: F11, Cmd+F, or Alt+Enter
+                bool isFullscreenToggle = key == SDL_Keycode.SDLK_F11 || scancode == SDL_Scancode.SDL_SCANCODE_F11 ||
+                    (OperatingSystem.IsMacOS() && isGui && (key == SDL_Keycode.SDLK_F || scancode == SDL_Scancode.SDL_SCANCODE_F)) ||
+                    (isAlt && (key == SDL_Keycode.SDLK_RETURN || scancode == SDL_Scancode.SDL_SCANCODE_RETURN));
 
                 if (isFullscreenToggle)
                 {
@@ -348,21 +360,25 @@ namespace Ryujinx.Headless
 
         public void Exit()
         {
-            TouchScreenManager?.Dispose();
-            NpadManager?.Dispose();
-
             if (_isStopped)
             {
                 return;
             }
 
-            _gpuCancellationTokenSource.Cancel();
-
             _isStopped = true;
             _isActive = false;
 
-            _exitEvent.WaitOne();
-            _exitEvent.Dispose();
+            _gpuCancellationTokenSource.Cancel();
+
+            TouchScreenManager?.Dispose();
+            NpadManager?.Dispose();
+
+            if (WindowHandle != null)
+            {
+                SDL3Driver.Instance.UnregisterWindow(_windowId);
+                SDL_DestroyWindow(WindowHandle);
+                WindowHandle = null;
+            }
         }
 
         public static void ProcessMainThreadQueue()
@@ -385,8 +401,6 @@ namespace Ryujinx.Headless
 
                 Thread.Sleep(1);
             }
-
-            _exitEvent.Set();
         }
 
         private bool UpdateFrame()
@@ -436,10 +450,12 @@ namespace Ryujinx.Headless
 
             MainLoop();
 
-            _gpuDoneEvent.WaitOne();
+            _gpuDoneEvent.WaitOne(500);
             _gpuDoneEvent.Dispose();
 
             Exit();
+
+            Environment.Exit(0);
         }
 
         public bool DisplayInputDialog(SoftwareKeyboardUIArgs args, out string userText)
