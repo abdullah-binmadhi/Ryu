@@ -226,12 +226,10 @@ namespace Ryujinx.Headless
             }
             _lastFullscreenToggleTimestamp = now;
 
-            SDL_WindowFlags currentFlags = SDL_GetWindowFlags(WindowHandle);
-            bool isCurrentlyFullscreen = (currentFlags & SDL_WindowFlags.SDL_WINDOW_FULLSCREEN) != 0;
-            bool targetFullscreen = !isCurrentlyFullscreen;
+            bool targetFullscreen = !IsFullscreen;
+            IsFullscreen = targetFullscreen;
 
             SDL_SetWindowFullscreen(WindowHandle, targetFullscreen);
-            IsFullscreen = targetFullscreen;
             Logger.Info?.Print(LogClass.Application, $"Fullscreen mode toggled: {(targetFullscreen ? "Enabled" : "Disabled")}");
         }
 
@@ -274,6 +272,14 @@ namespace Ryujinx.Headless
                         Height = evnt.window.data2;
                         Renderer?.Window?.SetSize(Width, Height);
                         MouseDriver?.SetClientSize(Width, Height);
+                        break;
+
+                    case SDL_EventType.SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+                        IsFullscreen = true;
+                        break;
+
+                    case SDL_EventType.SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+                        IsFullscreen = false;
                         break;
 
                     case SDL_EventType.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
