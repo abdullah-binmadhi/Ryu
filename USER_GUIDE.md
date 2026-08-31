@@ -1,67 +1,44 @@
-# Ryu: High-Performance Bare-Metal Nintendo Switch Emulation Core
-
-Ryu is an optimized, decoupled Nintendo Switch execution environment engineered for minimal latency, reduced memory overhead, and native hardware execution across macOS and Windows platforms. 
-
-By eliminating desktop user interface abstractions and integrating directly with native operating system subsystems, Ryu achieves deterministic execution timing and efficient resource utilization on modern hardware architectures.
+# Ryu User Guide: High-Performance Nintendo Switch Emulation
 
 ---
 
 ## Table of Contents
-1. [Architectural Overview](#architectural-overview)
-2. [Compilation and Setup](#compilation-and-setup)
-   * [macOS (Apple Silicon & Intel)](#macos-compilation-and-setup)
-   * [Windows (x64 & ARM64)](#windows-compilation-and-setup)
-3. [System Keys and Firmware Installation](#system-keys-and-firmware-installation)
-4. [Execution and Configuration Workflows](#execution-and-configuration-workflows)
-   * [Basic Launch](#basic-launch)
+1. [Introduction and Core Design Philosophy](#introduction-and-core-design-philosophy)
+2. [Quick Start Guide](#quick-start-guide)
+   * [macOS Installation and Setup](#macos-installation-and-setup)
+   * [Windows Installation and Setup](#windows-installation-and-setup)
+3. [Provisioning Keys and System Firmware](#provisioning-keys-and-system-firmware)
+4. [Launching Games and Graphics Configuration](#launching-games-and-graphics-configuration)
+   * [Basic Execution](#basic-execution)
    * [Target Framerate and Presentation Cadence (30 / 60 / 120 FPS)](#target-framerate-and-presentation-cadence-30--60--120-fps)
    * [Command-Line Parameters vs Persistent Defaults](#command-line-parameters-vs-persistent-defaults)
-   * [Live In-Session Controls](#live-in-session-controls)
+   * [Live In-Game Quick Settings Menu and Hotkeys](#live-in-game-quick-settings-menu-and-hotkeys)
    * [High-Resolution Scaling and Post-Processing](#high-resolution-scaling-and-post-processing)
 5. [Input Subsystem and Controller Configuration](#input-subsystem-and-controller-configuration)
    * [Gamepad Support](#gamepad-support)
    * [Keyboard Layout and Bindings](#keyboard-layout-and-bindings)
    * [Mouse and Pointer Input](#mouse-and-pointer-input)
-6. [Graphics Pipeline and Display Synchronization](#graphics-pipeline-and-display-synchronization)
-7. [Data Hierarchy, Saves, and Modifications](#data-hierarchy-saves-and-modifications)
-   * [Directory Structure](#directory-structure)
-   * [Installing 60 FPS and Visual Patches](#installing-60-fps-and-visual-patches)
-8. [Command Line Reference](#command-line-reference)
-9. [Diagnostic Procedures and Troubleshooting](#diagnostic-procedures-and-troubleshooting)
+6. [Mods, 60 FPS Patches, and Save Data Management](#mods-60-fps-patches-and-save-data-management)
+7. [Comprehensive Command Line Reference](#comprehensive-command-line-reference)
+8. [Troubleshooting and Diagnostic Procedures](#troubleshooting-and-diagnostic-procedures)
 
 ---
 
-## Architectural Overview
+## Introduction and Core Design Philosophy
 
-### Decoupled Headless Engine
-Traditional desktop emulators allocate significant memory and CPU cycles to window managers, UI compositors, and graphical framework runtimes (such as Avalonia or Qt). Ryu removes these dependencies, utilizing a lightweight execution harness that renders directly to the native windowing surface (`CAMetalLayer` on macOS; Vulkan swapchain surfaces on Windows). This architecture saves approximately 250 MB of memory and eliminates UI-induced CPU thread contention.
+Ryu is an optimized Nintendo Switch emulator designed for low-latency, high-performance gameplay on both macOS and Windows. 
 
-### Native Apple Silicon Virtualization (`AppleHv`)
-On macOS ARM64 systems, Ryu routes guest EL0 code through Apple's `Hypervisor.framework`, executing instructions directly on physical CPU registers rather than compiling them through intermediate software translation layers.
+Unlike traditional emulators that bundle graphical UI shells (such as Avalonia or Qt), Ryu operates as a bare-metal executable that interfaces directly with native operating system graphics APIs:
+* **macOS:** Renders directly to `CAMetalLayer` via MoltenVK (Metal 3), executing guest code through Apple Silicon hypervisor virtualization (`AppleHv`).
+* **Windows:** Renders directly to Vulkan 1.3 swapchain surfaces with multi-threaded command queues.
 
-### Darwin Mach Thread Scheduling
-Critical emulator subsystems (guest CPU threads, GPU command dispatch, and DSP audio processing) are assigned Mach `QOS_CLASS_USER_INTERACTIVE` priorities to guarantee execution on Apple Silicon Performance Cores (P-Cores), while asynchronous background tasks such as disk compilation caches are delegated to Efficiency Cores (E-Cores).
-
-### Precision Display Synchronization
-Ryu interfaces directly with platform display synchronization APIs:
-* **macOS:** Utilizes `CoreVideo` (`CVDisplayLink`) callbacks to synchronize frame pacing with hardware refresh intervals. On 120Hz ProMotion displays, Ryu implements integer cadence division (60 FPS at 2 ticks; 30 FPS at 4 ticks), preventing simulation clock speedups while eliminating CPU spin-waiting loops.
-* **Windows:** Employs Vulkan presentation queues with adaptive mailbox pacing, supporting high-refresh displays (120Hz, 144Hz, 165Hz, 240Hz) and variable refresh rate (VRR) technologies including NVIDIA G-Sync and AMD FreeSync.
-
-### Sub-Millisecond Input Polling
-Input event loops are configured for 1ms polling intervals with dedicated driver worker threads, providing sub-millisecond latency for competitive gameplay.
+This decoupled architecture minimizes RAM usage (saving ~250 MB), eliminates desktop compositing overhead, and delivers deterministic frame pacing.
 
 ---
 
-## Compilation and Setup
+## Quick Start Guide
 
-### Prerequisites
-* [.NET 10.0 SDK](https://dotnet.microsoft.com/download) (or latest supported release)
-* Native C/C++ compiler toolchain (Xcode Command Line Tools on macOS; Visual Studio C++ Build Tools on Windows)
-* Git
-
----
-
-### macOS Compilation and Setup
+### macOS Installation and Setup
 
 1. **Clone the Repository:**
    ```bash
@@ -69,29 +46,16 @@ Input event loops are configured for 1ms polling intervals with dedicated driver
    cd Ryu
    ```
 
-2. **Compile the Native Release Binary:**
-   Execute the automated packaging script:
+2. **Compile the Native Binary:**
+   Run the build script:
    ```bash
    ./distribution/build_release.sh
    ```
-   *The compiled binary and runtime dependencies are placed in `distribution/publish/osx-arm64/Ryu`.*
-
-3. **Manual Compilation Command (Alternative):**
-   ```bash
-   dotnet publish src/Ryujinx.Headless/Ryujinx.Headless.csproj \
-       -c Release \
-       -r osx-arm64 \
-       --self-contained \
-       -p:PublishReadyToRun=true \
-       -p:TieredPGO=true \
-       -o distribution/publish/osx-arm64
-
-   codesign --entitlements distribution/macos/entitlements.xml -f -s - distribution/publish/osx-arm64/Ryu
-   ```
+   *The binary will be compiled and packaged into `distribution/publish/osx-arm64/Ryu`.*
 
 ---
 
-### Windows Compilation and Setup
+### Windows Installation and Setup
 
 1. **Clone the Repository:**
    ```powershell
@@ -99,18 +63,18 @@ Input event loops are configured for 1ms polling intervals with dedicated driver
    cd Ryu
    ```
 
-2. **Compile the Release Binary:**
-   Run from PowerShell or Command Prompt:
+2. **Compile the Binary:**
+   Execute via PowerShell:
    ```powershell
    dotnet publish src/Ryujinx.Headless/Ryujinx.Headless.csproj -c Release -r win-x64 --self-contained -p:PublishReadyToRun=true -p:TieredPGO=true -o distribution/publish/win-x64
    ```
-   *The compiled executable is located at `distribution\publish\win-x64\Ryu.exe`.*
+   *The compiled executable will be located at `distribution\publish\win-x64\Ryu.exe`.*
 
 ---
 
-## System Keys and Firmware Installation
+## Provisioning Keys and System Firmware
 
-Ryu maintains a portable configuration environment located in the `portable/` subdirectory adjacent to the executable.
+Ryu utilizes a self-contained portable structure located in the `portable/` directory:
 
 ```text
 portable/
@@ -118,35 +82,33 @@ portable/
 │   ├── prod.keys
 │   └── title.keys
 └── bis/
-    ├── system/Contents/registered/  (Installed Nintendo Firmware)
-    └── user/save/                   (Game Save Data)
+    ├── system/Contents/registered/  (Installed Firmware)
+    └── user/save/                   (Game Saves)
 ```
 
-### 1. Provisioning Cryptographic Keys
-Place your dumped `prod.keys` and `title.keys` files into the `portable/system/` directory:
+### 1. Adding Cryptographic Keys
+Place dumped `prod.keys` and `title.keys` inside `portable/system/`:
 * **macOS:** `distribution/publish/osx-arm64/portable/system/`
 * **Windows:** `distribution\publish\win-x64\portable\system\`
 
-### 2. Installing System Firmware
-Install official system firmware (from a `.zip` archive or extracted directory) using the built-in installation argument:
+### 2. Installing Firmware
+Install official system firmware directly using the `--install-firmware` flag:
 
 * **macOS:**
   ```bash
-  ./distribution/publish/osx-arm64/Ryu --install-firmware "/path/to/Firmware_Archive_or_Directory"
+  ./distribution/publish/osx-arm64/Ryu --install-firmware "/path/to/Firmware_Directory_or_Zip"
   ```
 * **Windows:**
   ```powershell
-  .\distribution\publish\win-x64\Ryu.exe --install-firmware "C:\path\to\Firmware_Archive_or_Directory"
+  .\distribution\publish\win-x64\Ryu.exe --install-firmware "C:\path\to\Firmware_Directory_or_Zip"
   ```
-
-Upon completion, the system firmware is automatically verified and unpacked into the registered contents partition.
 
 ---
 
-## Execution and Configuration Workflows
+## Launching Games and Graphics Configuration
 
-### Basic Launch
-Provide the path to the game image (`.xci`, `.nsp`, `.nca`, or `.nro`):
+### Basic Execution
+Pass the path of the game image (`.xci`, `.nsp`, `.nca`, or `.nro`):
 
 * **macOS:**
   ```bash
@@ -156,18 +118,18 @@ Provide the path to the game image (`.xci`, `.nsp`, `.nca`, or `.nro`):
   ```powershell
   .\distribution\publish\win-x64\Ryu.exe "C:\Games\Game.xci"
   ```
-  *(Note: On Windows, game files can also be dragged and dropped directly onto `Ryu.exe`.)*
+  *(Tip: On Windows, you can drag and drop `.xci` or `.nsp` files onto `Ryu.exe` directly).*
 
 ---
 
 ### Target Framerate and Presentation Cadence (30 / 60 / 120 FPS)
-Ryu supports dynamic hardware display cadence configuration via the `--target-fps` argument:
+Ryu features dynamic display synchronization that can lock presentation cadence to your desired frame rate:
 
-* **60 FPS Presentation Target (Fluid Motion):**
+* **60 FPS Target (Standard Smooth Cadence):**
   ```bash
   Ryu "Game.xci" --target-fps 60
   ```
-* **Native 30 FPS Presentation Target (Standard Timing):**
+* **30 FPS Target (Default Switch Timing):**
   ```bash
   Ryu "Game.xci" --target-fps 30
   ```
@@ -180,32 +142,43 @@ Ryu supports dynamic hardware display cadence configuration via the `--target-fp
 
 ### Command-Line Parameters vs Persistent Defaults
 
-Ryu provides two complementary methods for configuring runtime behavior:
+Ryu supports two complementary workflows for configuring options:
 
 #### 1. Per-Launch Command-Line Arguments (Dynamic)
-Command-line arguments configure the graphics pipeline and emulator subsystems for a single session. To change parameters:
-1. Terminate the active game session (`Command + Q` on macOS; `Alt + F4` on Windows).
-2. Execute the launch command with the updated arguments:
+Arguments passed to the executable apply to that specific game session. If you want to modify settings (such as enabling FSR or changing resolution):
+1. Exit the running game (`Command + Q` on macOS; `Alt + F4` on Windows).
+2. Relaunch with your updated flags:
    ```bash
    ./distribution/publish/osx-arm64/Ryu "Game.xci" --target-fps 60 --resolution-scale 2 --scaling-filter Fsr --scaling-filter-level 85
    ```
-*(Opening a secondary terminal tab while a game is running is unnecessary, as runtime hardware pipelines are initialized upon process creation).*
+*(You do not need to open a second terminal tab while the game is running, as hardware pipelines initialize during process startup).*
 
 #### 2. Persistent Defaults via `Config.json` (Static)
-To set permanent global defaults without passing arguments on every launch, edit the configuration file located at `portable/Config.json`:
-* `"res_scale": 2.0` (Permanently defaults to 2x resolution scaling).
-* `"scaling_filter": "Fsr"` (Permanently activates AMD FSR upscaling).
-* `"scaling_filter_level": 80` (Configures default sharpening strength).
-* `"enable_docked_mode": true` (Defaults to Switch Docked operational mode).
+To set permanent defaults so that you don't need to specify command-line flags every time, edit `portable/Config.json`:
+* `"res_scale": 2.0` (Defaults to 2x resolution scaling).
+* `"scaling_filter": "Fsr"` (Defaults to AMD FSR upscaling).
+* `"scaling_filter_level": 80` (Sets FSR sharpening intensity).
+* `"enable_docked_mode": true` (Defaults to Docked operational profile).
 
 Once saved, executing `Ryu "Game.xci"` without flags will automatically inherit these settings.
 
 ---
 
-### Live In-Session Controls
-The following actions can be performed directly during active gameplay without restarting the application:
-* **Toggle Fullscreen Mode:** Press `Command + F` (macOS), `F11`, or `Alt + Enter` (Windows).
-* **Instant Process Termination:** Press `Command + Q` (macOS) or `Alt + F4` (Windows).
+### Live In-Game Quick Settings Menu and Hotkeys
+
+Ryu features live in-session controls, an interactive Quick Settings dialog, and real-time on-screen telemetry that can be toggled without restarting the game:
+
+| Shortcut (macOS / Windows) | Action | Description |
+| :--- | :--- | :--- |
+| **`F1`** / **`Command + ,`** / **`Command + 1`** | **Quick Settings Menu** | Displays interactive on-screen menu with current settings and hotkey guide. |
+| **`F2`** / **`Command + 2`** | **Cycle Target FPS** | Cycles target framerate on the fly (`30 FPS` $\leftrightarrow$ `60 FPS` $\leftrightarrow$ `120 FPS`). |
+| **`F3`** / **`Command + 3`** | **Cycle Scaling Filter** | Switches active post-processing filter (`Bilinear` $\to$ `AMD FSR` $\to$ `Nearest`). |
+| **`F4`** / **`Command + 4`** | **Cycle FSR Sharpening** | Cycles AMD FSR sharpening intensity (`80%` $\to$ `100%` $\to$ `50%` $\to$ `20%`). |
+| **`F5`** / **`Command + 5`** | **Toggle Anti-Aliasing** | Toggles hardware anti-aliasing (`None` $\leftrightarrow$ `SMAA Ultra`). |
+| **`F6`** / **`Command + 6`** | **Toggle Operation Mode** | Switches emulation state between `Docked` and `Handheld` modes. |
+| **`F7`** / **`Command + 7`** | **Toggle On-Screen OSD** | Enables or disables real-time titlebar/OSD performance telemetry. |
+| **`Command + F`** / **`F11`** | **Toggle Fullscreen** | Toggles borderless fullscreen display mode. |
+| **`Command + Q`** / **`Alt + F4`** | **Instant Exit** | Immediately and safely terminates the emulator process. |
 
 ---
 
@@ -299,58 +272,27 @@ When running without a physical gamepad, Ryu maps keyboard inputs according to t
 
 ---
 
-## Graphics Pipeline and Display Synchronization
+## Mods, 60 FPS Patches, and Save Data Management
 
-### Backend Configurations
-* **macOS:** Metal 3 via MoltenVK. Graphics features include asynchronous pipeline compilation, prefilled Metal command buffers, MSL fast-math optimizations, and sub-allocated `MTLHeap` memory pools.
-* **Windows:** Direct Vulkan 1.3 driver interface supporting descriptor indexing, unified memory architectures, and multithreaded command recording.
+### Save Data Location
+All user saves are stored under `portable/bis/user/save/`. You can back up or restore save files by copying the contents of this folder.
 
-### Handheld versus Docked Modes
-* **Docked Mode (Default):** Higher target resolution limits and expanded graphical profile settings.
-* **Handheld Mode:** Reduces internal rendering workloads for lower power consumption and improved battery efficiency on portable devices:
-  ```bash
-  Ryu "Game.xci" --docked-mode=false
-  ```
-
----
-
-## Data Hierarchy, Saves, and Modifications
-
-### Directory Structure
-```text
-portable/
-├── system/                  (System keys: prod.keys, title.keys)
-├── bis/
-│   ├── system/Contents/     (Installed firmware NCAs)
-│   └── user/save/           (Account save data directory)
-└── mods/
-    └── contents/
-        └── <TitleID>/       (Target Game Title ID, e.g. 010051F0207B2000)
-            ├── romfs/       (RomFS asset replacement files)
-            └── exefs/       (ExeFS binary patches and IPS code mods)
-```
-
-### Save Data Management
-Game saves are maintained under `portable/bis/user/save/`. Backups can be performed by copying this folder to an external location.
-
-### Installing 60 FPS and Visual Patches
-Ryu includes native support for IPS binary patches (`.ips`) and IPSwitch text patches (`.pchtxt`), including all community patches distributed in standard mod repositories (such as the Yuzu Mod Archive):
+### Installing 60 FPS, Cheats, and Visual Patches
+Ryu includes native support for Atmosphere cheats (`cheats/`), IPS binary patches (`.ips`), and IPSwitch text patches (`.pchtxt`), including all community patches distributed in standard mod repositories (such as the Yuzu Mod Archive):
 
 1. Identify the **Title ID** of the game (for example, `010051F0207B2000`).
-2. Create the target mod path in the portable directory:
-   ```text
-   portable/mods/contents/<TitleID>/exefs/
-   ```
-3. Copy the patch file (`60fps.pchtxt`, `4k.pchtxt`, or `.ips` binary) into the `exefs/` folder.
-4. Launch the title with `--target-fps 60`:
+2. Create the target path in the portable directory:
+   * For Atmosphere Cheat Patches: `portable/mods/contents/<TitleID>/cheats/<BuildID>.txt`
+   * For ExeFS / IPSwitch Mods: `portable/mods/contents/<TitleID>/exefs/60fps.pchtxt`
+3. Launch the title:
    ```bash
    Ryu "Game.xci" --target-fps 60
    ```
-Ryu automatically validates the patch build identifier against the running game executable in memory, unlocks the target framerate, and corrects game engine delta physics without causing fast-forward distortion.
+Ryu automatically detects and enables installed cheats and patches during startup, unlocks 60 FPS presentation pacing, and corrects game engine delta physics without causing fast-forward distortion.
 
 ---
 
-## Command Line Reference
+## Comprehensive Command Line Reference
 
 | Option | Type / Default | Description | Example Usage |
 | :--- | :--- | :--- | :--- |
@@ -370,10 +312,10 @@ Ryu automatically validates the patch build identifier against the running game 
 
 ---
 
-## Diagnostic Procedures and Troubleshooting
+## Troubleshooting and Diagnostic Procedures
 
-### 1. Missing System Font Title (`FontStandard / 100000000000811`)
-* **Cause:** The title requests shared system font resources stored in firmware archives.
+### 1. Missing System Font Error
+* **Cause:** The title requests system fonts provided in the Switch firmware.
 * **Resolution:** Install an official firmware package:
   ```bash
   Ryu --install-firmware "/path/to/firmware"
@@ -381,18 +323,18 @@ Ryu automatically validates the patch build identifier against the running game 
 
 ### 2. Cryptographic Key Derivation Failure
 * **Cause:** Missing or outdated `prod.keys` file.
-* **Resolution:** Ensure valid, current `prod.keys` and `title.keys` are present in `portable/system/`.
+* **Resolution:** Place your valid `prod.keys` in `portable/system/`.
 
 ### 3. Real-Time Telemetry Inspection
-Ryu provides a continuous ANSI terminal HUD reporting engine state:
+Ryu outputs real-time performance telemetry in the terminal and on-screen window titlebar:
 ```text
 [Ryu] FPS:  60.0 (16.6ms) | 1% Low:  58.2 | RAM: 2950 MB | Thermal: Nominal | Uptime: 00:15
 ```
-* **FPS / Frame Time:** Indicates instantaneous render cadence and frame time variance.
-* **1% Low:** Measures consistency of frame pacing.
-* **RAM:** Tracks Resident Set Size (RSS) process memory consumption.
-* **Thermal:** Reports operating system thermal pressure states (`Nominal`, `Fair`, `Serious`, `Critical`).
+* **FPS / Frame Time:** Current framerate and millisecond frame timing.
+* **1% Low:** Measures consistency of frame delivery.
+* **RAM:** Tracks active process memory usage.
+* **Thermal:** Reports host thermal pressure (`Nominal`, `Fair`, `Heavy`, `Critical`).
 
 ### 4. Process Termination
-* **macOS:** Press `Command + Q`, click the window close button, or send `SIGINT` via `Ctrl + C` in the controlling terminal.
-* **Windows:** Press `Alt + F4`, click the window close icon, or press `Ctrl + C` in the PowerShell/Command Prompt terminal.
+* **macOS:** Press `Command + Q`, click the window close button, or press `Ctrl + C` in the controlling terminal.
+* **Windows:** Press `Alt + F4`, click the window close icon, or press `Ctrl + C` in the PowerShell/Command Prompt window.

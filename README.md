@@ -16,7 +16,7 @@ By eliminating desktop user interface abstractions and integrating directly with
    * [Basic Launch](#basic-launch)
    * [Target Framerate and Presentation Cadence (30 / 60 / 120 FPS)](#target-framerate-and-presentation-cadence-30--60--120-fps)
    * [Command-Line Parameters vs Persistent Defaults](#command-line-parameters-vs-persistent-defaults)
-   * [Live In-Session Controls](#live-in-session-controls)
+   * [Live In-Game Quick Settings Menu and Hotkeys](#live-in-game-quick-settings-menu-and-hotkeys)
    * [High-Resolution Scaling and Post-Processing](#high-resolution-scaling-and-post-processing)
 5. [Input Subsystem and Controller Configuration](#input-subsystem-and-controller-configuration)
    * [Gamepad Support](#gamepad-support)
@@ -202,10 +202,21 @@ Once saved, executing `Ryu "Game.xci"` without flags will automatically inherit 
 
 ---
 
-### Live In-Session Controls
-The following actions can be performed directly during active gameplay without restarting the application:
-* **Toggle Fullscreen Mode:** Press `Command + F` (macOS), `F11`, or `Alt + Enter` (Windows).
-* **Instant Process Termination:** Press `Command + Q` (macOS) or `Alt + F4` (Windows).
+### Live In-Game Quick Settings Menu and Hotkeys
+
+Ryu features live in-session controls, an interactive Quick Settings dialog, and real-time on-screen telemetry that can be toggled without restarting the game:
+
+| Shortcut (macOS / Windows) | Action | Description |
+| :--- | :--- | :--- |
+| **`F1`** / **`Command + ,`** / **`Command + 1`** | **Quick Settings Menu** | Displays interactive on-screen menu with current settings and hotkey guide. |
+| **`F2`** / **`Command + 2`** | **Cycle Target FPS** | Cycles target framerate on the fly (`30 FPS` $\leftrightarrow$ `60 FPS` $\leftrightarrow$ `120 FPS`). |
+| **`F3`** / **`Command + 3`** | **Cycle Scaling Filter** | Switches active post-processing filter (`Bilinear` $\to$ `AMD FSR` $\to$ `Nearest`). |
+| **`F4`** / **`Command + 4`** | **Cycle FSR Sharpening** | Cycles AMD FSR sharpening intensity (`80%` $\to$ `100%` $\to$ `50%` $\to$ `20%`). |
+| **`F5`** / **`Command + 5`** | **Toggle Anti-Aliasing** | Toggles hardware anti-aliasing (`None` $\leftrightarrow$ `SMAA Ultra`). |
+| **`F6`** / **`Command + 6`** | **Toggle Operation Mode** | Switches emulation state between `Docked` and `Handheld` modes. |
+| **`F7`** / **`Command + 7`** | **Toggle On-Screen OSD** | Enables or disables real-time titlebar/OSD performance telemetry. |
+| **`Command + F`** / **`F11`** | **Toggle Fullscreen** | Toggles borderless fullscreen display mode. |
+| **`Command + Q`** / **`Alt + F4`** | **Instant Exit** | Immediately and safely terminates the emulator process. |
 
 ---
 
@@ -326,6 +337,7 @@ portable/
 └── mods/
     └── contents/
         └── <TitleID>/       (Target Game Title ID, e.g. 010051F0207B2000)
+            ├── cheats/      (Atmosphere cheat files, e.g. 56BF85BD53541346.txt)
             ├── romfs/       (RomFS asset replacement files)
             └── exefs/       (ExeFS binary patches and IPS code mods)
 ```
@@ -333,20 +345,18 @@ portable/
 ### Save Data Management
 Game saves are maintained under `portable/bis/user/save/`. Backups can be performed by copying this folder to an external location.
 
-### Installing 60 FPS and Visual Patches
-Ryu includes native support for IPS binary patches (`.ips`) and IPSwitch text patches (`.pchtxt`), including all community patches distributed in standard mod repositories (such as the Yuzu Mod Archive):
+### Installing 60 FPS, Cheats, and Visual Patches
+Ryu includes native support for Atmosphere cheats (`cheats/`), IPS binary patches (`.ips`), and IPSwitch text patches (`.pchtxt`), including all community patches distributed in standard mod repositories (such as the Yuzu Mod Archive):
 
 1. Identify the **Title ID** of the game (for example, `010051F0207B2000`).
-2. Create the target mod path in the portable directory:
-   ```text
-   portable/mods/contents/<TitleID>/exefs/
-   ```
-3. Copy the patch file (`60fps.pchtxt`, `4k.pchtxt`, or `.ips` binary) into the `exefs/` folder.
-4. Launch the title with `--target-fps 60`:
+2. Create the target path in the portable directory:
+   * For Atmosphere Cheat Patches: `portable/mods/contents/<TitleID>/cheats/<BuildID>.txt`
+   * For ExeFS / IPSwitch Mods: `portable/mods/contents/<TitleID>/exefs/60fps.pchtxt`
+3. Launch the title:
    ```bash
    Ryu "Game.xci" --target-fps 60
    ```
-Ryu automatically validates the patch build identifier against the running game executable in memory, unlocks the target framerate, and corrects game engine delta physics without causing fast-forward distortion.
+Ryu automatically detects and enables installed cheats and patches during startup, unlocks 60 FPS presentation pacing, and corrects game engine delta physics without causing fast-forward distortion.
 
 ---
 
@@ -384,7 +394,7 @@ Ryu automatically validates the patch build identifier against the running game 
 * **Resolution:** Ensure valid, current `prod.keys` and `title.keys` are present in `portable/system/`.
 
 ### 3. Real-Time Telemetry Inspection
-Ryu provides a continuous ANSI terminal HUD reporting engine state:
+Ryu provides a continuous ANSI terminal HUD and on-screen window titlebar telemetry reporting engine state:
 ```text
 [Ryu] FPS:  60.0 (16.6ms) | 1% Low:  58.2 | RAM: 2950 MB | Thermal: Nominal | Uptime: 00:15
 ```

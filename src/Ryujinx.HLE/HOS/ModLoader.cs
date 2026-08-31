@@ -754,7 +754,16 @@ namespace Ryujinx.HLE.HOS
                 tamperMachine.InstallAtmosphereCheat(cheat.Name, cheatId, cheat.Instructions, tamperInfo, exeAddress);
             }
 
-            EnableCheats(applicationId, tamperMachine);
+            string enabledCheatsPath = Path.Combine(GetModsBasePath(), AmsContentsDir, $"{applicationId:x16}", CheatDir, "enabled.txt");
+            if (File.Exists(enabledCheatsPath))
+            {
+                EnableCheats(applicationId, tamperMachine);
+            }
+            else
+            {
+                Logger.Info?.Print(LogClass.ModLoader, $"Auto-enabling all {cheats.Count} installed cheats for application {applicationId:X16}");
+                tamperMachine.EnableCheats(cheats.Select(c => c.Name).ToArray());
+            }
         }
 
         internal static void EnableCheats(ulong applicationId, TamperMachine tamperMachine)

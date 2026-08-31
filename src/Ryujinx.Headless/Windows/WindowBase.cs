@@ -37,7 +37,7 @@ namespace Ryujinx.Headless
     {
         protected const int DefaultWidth = 1280;
         protected const int DefaultHeight = 720;
-        private const int TargetFps = 60;
+        public int TargetFps { get; set; } = 60;
         private SDL_WindowFlags DefaultFlags = SDL_WindowFlags.SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WindowFlags.SDL_WINDOW_RESIZABLE | SDL_WindowFlags.SDL_WINDOW_INPUT_FOCUS;
         private SDL_WindowFlags FullscreenFlag = 0;
 
@@ -80,6 +80,16 @@ namespace Ryujinx.Headless
         private bool _isActive;
         private bool _isStopped;
         private bool _lastFullscreenHotkeyDown;
+        private bool _lastF1KeyDown;
+        private bool _lastF2KeyDown;
+        private bool _lastF3KeyDown;
+        private bool _lastF4KeyDown;
+        private bool _lastF5KeyDown;
+        private bool _lastF6KeyDown;
+        private bool _lastF7KeyDown;
+        private bool _showOsd = true;
+        private string _baseWindowTitle = "Ryu";
+        private readonly Stopwatch _osdTimer = new();
         private SDL_WindowID _windowId;
 
         private string _gpuDriverName;
@@ -296,6 +306,94 @@ namespace Ryujinx.Headless
             Renderer?.Window?.SetScalingFilterLevel(ScalingFilterLevel);
         }
 
+        public void ShowQuickSettingsMenu()
+        {
+            bool isDocked = Device?.System?.State?.DockedMode ?? true;
+            string message = "--- Ryu Live Quick Settings & Controls ---\n\n" +
+                             $"• Target Framerate : {TargetFps} FPS  (Press F2 or Cmd+2 to toggle)\n" +
+                             $"• Scaling Filter   : {ScalingFilter}  (Press F3 or Cmd+3 to cycle)\n" +
+                             $"• FSR Sharpening   : {ScalingFilterLevel}%  (Press F4 or Cmd+4 to cycle)\n" +
+                             $"• Anti-Aliasing    : {AntiAliasing}  (Press F5 or Cmd+5 to toggle)\n" +
+                             $"• Operation Mode   : {(isDocked ? "Docked" : "Handheld")}  (Press F6 or Cmd+6 to toggle)\n" +
+                             $"• On-Screen OSD    : {(_showOsd ? "Enabled" : "Disabled")}  (Press F7 or Cmd+7 to toggle)\n" +
+                             $"• Fullscreen Mode  : {(IsFullscreen ? "Active" : "Windowed")}  (Press Cmd+F or F11 to toggle)\n" +
+                             $"• Instant Quit     : Cmd+Q\n\n" +
+                             "Click OK to resume gameplay.";
+
+            SDL_ShowSimpleMessageBox(SDL_MessageBoxFlags.SDL_MESSAGEBOX_INFORMATION, "Ryu In-Game Quick Settings", message, WindowHandle);
+        }
+
+        public void CycleTargetFps()
+        {
+            int newFps = TargetFps switch
+            {
+                30 => 60,
+                60 => 120,
+                120 => 30,
+                _ => 60
+            };
+
+            SetTargetFps(newFps);
+        }
+
+        public void SetTargetFps(int targetFps)
+        {
+            TargetFps = targetFps;
+            if (Device != null)
+            {
+                Device.CustomVSyncInterval = targetFps;
+                Device.CustomVSyncIntervalEnabled = targetFps != 30;
+            }
+            Logger.Info?.Print(LogClass.Application, $"Target FPS switched to: {targetFps} FPS");
+        }
+
+        public void CycleScalingFilter()
+        {
+            ScalingFilter newFilter = ScalingFilter switch
+            {
+                ScalingFilter.Bilinear => ScalingFilter.Fsr,
+                ScalingFilter.Fsr => ScalingFilter.Nearest,
+                _ => ScalingFilter.Bilinear
+            };
+
+            ScalingFilter = newFilter;
+            Renderer?.Window?.SetScalingFilter(newFilter);
+            Logger.Info?.Print(LogClass.Application, $"Scaling Filter switched to: {newFilter}");
+        }
+
+        public void CycleScalingFilterLevel()
+        {
+            int newLevel = ScalingFilterLevel switch
+            {
+                80 => 100,
+                100 => 50,
+                50 => 20,
+                _ => 80
+            };
+
+            ScalingFilterLevel = newLevel;
+            Renderer?.Window?.SetScalingFilterLevel(newLevel);
+            Logger.Info?.Print(LogClass.Application, $"FSR Sharpening Level switched to: {newLevel}%");
+        }
+
+        public void ToggleAntiAliasing()
+        {
+            AntiAliasing newAa = AntiAliasing == AntiAliasing.None ? AntiAliasing.SmaaUltra : AntiAliasing.None;
+            AntiAliasing = newAa;
+            Renderer?.Window?.SetAntiAliasing(newAa);
+            Logger.Info?.Print(LogClass.Application, $"Anti-Aliasing switched to: {newAa}");
+        }
+
+        public void ToggleDockedMode()
+        {
+            if (Device?.System?.State != null)
+            {
+                bool newDocked = !Device.System.State.DockedMode;
+                Device.System.State.DockedMode = newDocked;
+                Logger.Info?.Print(LogClass.Application, $"Operation Mode switched to: {(newDocked ? "Docked" : "Handheld")}");
+            }
+        }
+
         public void Render()
         {
             InitializeWindowRenderer();
@@ -438,6 +536,13 @@ namespace Ryujinx.Headless
                 bool isGui = (mod & (SDL_Keymod.SDL_KMOD_GUI | SDL_Keymod.SDL_KMOD_CTRL)) != 0;
                 bool isAlt = (mod & SDL_Keymod.SDL_KMOD_ALT) != 0;
 
+                bool f1Pressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F1] || (isGui && keyboardState[(int)SDL_Scancode.SDL_SCANCODE_1]) || (isGui && keyboardState[(int)SDL_Scancode.SDL_SCANCODE_COMMA]);
+                bool f2Pressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F2] || (isGui && keyboardState[(int)SDL_Scancode.SDL_SCANCODE_2]);
+                bool f3Pressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F3] || (isGui && keyboardState[(int)SDL_Scancode.SDL_SCANCODE_3]);
+                bool f4Pressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F4] || (isGui && keyboardState[(int)SDL_Scancode.SDL_SCANCODE_4]);
+                bool f5Pressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F5] || (isGui && keyboardState[(int)SDL_Scancode.SDL_SCANCODE_5]);
+                bool f6Pressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F6] || (isGui && keyboardState[(int)SDL_Scancode.SDL_SCANCODE_6]);
+                bool f7Pressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F7] || (isGui && keyboardState[(int)SDL_Scancode.SDL_SCANCODE_7]);
                 bool f11Pressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F11];
                 bool fPressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_F];
                 bool returnPressed = keyboardState[(int)SDL_Scancode.SDL_SCANCODE_RETURN];
@@ -449,14 +554,80 @@ namespace Ryujinx.Headless
                     return false;
                 }
 
-                bool isFullscreenHotkeyDown = f11Pressed || (isGui && fPressed) || (isAlt && returnPressed);
+                // F1: Quick Settings Menu
+                if (f1Pressed && !_lastF1KeyDown)
+                {
+                    ShowQuickSettingsMenu();
+                }
+                _lastF1KeyDown = f1Pressed;
 
+                // F2: Cycle Target FPS (30 / 60 / 120)
+                if (f2Pressed && !_lastF2KeyDown)
+                {
+                    CycleTargetFps();
+                }
+                _lastF2KeyDown = f2Pressed;
+
+                // F3: Cycle Scaling Filter (Bilinear / FSR / Nearest)
+                if (f3Pressed && !_lastF3KeyDown)
+                {
+                    CycleScalingFilter();
+                }
+                _lastF3KeyDown = f3Pressed;
+
+                // F4: Cycle FSR Sharpening Level
+                if (f4Pressed && !_lastF4KeyDown)
+                {
+                    CycleScalingFilterLevel();
+                }
+                _lastF4KeyDown = f4Pressed;
+
+                // F5: Toggle Anti-Aliasing
+                if (f5Pressed && !_lastF5KeyDown)
+                {
+                    ToggleAntiAliasing();
+                }
+                _lastF5KeyDown = f5Pressed;
+
+                // F6: Toggle Docked / Handheld Mode
+                if (f6Pressed && !_lastF6KeyDown)
+                {
+                    ToggleDockedMode();
+                }
+                _lastF6KeyDown = f6Pressed;
+
+                // F7: Toggle OSD Telemetry
+                if (f7Pressed && !_lastF7KeyDown)
+                {
+                    _showOsd = !_showOsd;
+                    if (!_showOsd && WindowHandle != null)
+                    {
+                        SDL_SetWindowTitle(WindowHandle, _baseWindowTitle);
+                    }
+                }
+                _lastF7KeyDown = f7Pressed;
+
+                // Fullscreen
+                bool isFullscreenHotkeyDown = f11Pressed || (isGui && fPressed) || (isAlt && returnPressed);
                 if (isFullscreenHotkeyDown && !_lastFullscreenHotkeyDown)
                 {
                     ToggleFullscreen();
                 }
-
                 _lastFullscreenHotkeyDown = isFullscreenHotkeyDown;
+            }
+
+            // Update real-time on-screen / window title telemetry
+            if (_showOsd && WindowHandle != null && _osdTimer.ElapsedMilliseconds >= 300)
+            {
+                _osdTimer.Restart();
+                double fps = Device?.Statistics?.GetGameFrameRate() ?? Ryujinx.Headless.UI.TerminalHud.CurrentFps;
+                double frameTime = Device?.Statistics?.GetGameFrameTime() ?? Ryujinx.Headless.UI.TerminalHud.FrameTimeMs;
+                double low1Percent = Ryujinx.Headless.UI.TerminalHud.OnePercentLow;
+                string filterStr = ScalingFilter == ScalingFilter.Fsr ? $"FSR {ScalingFilterLevel}%" : ScalingFilter.ToString();
+                string modeStr = (Device?.System?.State?.DockedMode ?? true) ? "Docked" : "Handheld";
+                string fullStr = IsFullscreen ? "Fullscreen" : "Windowed";
+
+                SDL_SetWindowTitle(WindowHandle, $"{_baseWindowTitle} | FPS: {fps:F1} ({frameTime:F1}ms) | 1% Low: {low1Percent:F1} | {filterStr} | {modeStr} | {fullStr}");
             }
 
             Device.Hid.DebugPad.Update();

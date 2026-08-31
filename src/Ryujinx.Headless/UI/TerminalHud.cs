@@ -49,6 +49,10 @@ namespace Ryujinx.Headless.UI
             _uptime.Stop();
         }
 
+        public static double CurrentFps => _currentFps;
+        public static double FrameTimeMs => _frameTimeMs;
+        public static double OnePercentLow => _onePercentLow;
+
         public static void UpdateMetrics(double fps, double frameTimeMs, double onePercentLow = 0)
         {
             _currentFps = fps;
