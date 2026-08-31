@@ -130,29 +130,13 @@ namespace Ryujinx.HLE.HOS.Services.Nv.NvDrvServices.NvHostCtrl
         {
             lock (Lock)
             {
-                // NOTE: nvservices code should always wait on the GPU side.
-                //       If we do this, we may get an abort or undefined behaviour when the GPU processing thread is blocked for a long period (for example, during shader compilation).
-                //       The reason for this is that the NVN code will try to wait until giving up.
-                //       This is done by trying to wait and signal multiple times until aborting after you are past the timeout.
-                //       As such, if it fails too many time, we enforce a wait on the CPU side indefinitely.
-                //       This allows to keep GPU and CPU in sync when we are slow.
-                if (_failingCount == FailingCountMax)
-                {
-                    Logger.Warning?.Print(LogClass.ServiceNv, "GPU processing thread is too slow, waiting on CPU...");
+                Fence = fence;
+                State = NvHostEventState.Waiting;
+                _failingCount = 0;
 
-                    _failingCount = Fence.Wait(gpuContext, Timeout.InfiniteTimeSpan) ? FailingCountMax : 0;
+                _waiterInformation = gpuContext.Synchronization.RegisterCallbackOnSyncpoint(Fence.Id, Fence.Value, GpuSignaled);
 
-                    return false;
-                }
-                else
-                {
-                    Fence = fence;
-                    State = NvHostEventState.Waiting;
-
-                    _waiterInformation = gpuContext.Synchronization.RegisterCallbackOnSyncpoint(Fence.Id, Fence.Value, GpuSignaled);
-
-                    return true;
-                }
+                return true;
             }
         }
 

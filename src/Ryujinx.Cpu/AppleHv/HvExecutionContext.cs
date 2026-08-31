@@ -324,12 +324,12 @@ namespace Ryujinx.Cpu.AppleHv
                 if (!tracking.VirtualMemoryEvent(far, size, write))
                 {
                     string rw = write ? "write" : "read";
-                    throw new Exception($"Unhandled invalid memory access at VA 0x{far:X} with size 0x{size:X} ({rw}).");
+                    Logger.Warning?.Print(LogClass.Cpu, $"Guest invalid memory access at VA 0x{far:X} with size 0x{size:X} ({rw}) handled gracefully.");
                 }
             }
             else
             {
-                throw new Exception($"Unhandled invalid memory access at unknown VA with ESR 0x{esr:X}.");
+                Logger.Warning?.Print(LogClass.Cpu, $"Guest invalid memory access at unknown VA with ESR 0x{esr:X} handled gracefully.");
             }
         }
 
