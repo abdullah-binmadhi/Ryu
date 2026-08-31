@@ -40,8 +40,24 @@ namespace Ryujinx.Headless
             {
                 if (index == PlayerIndex.Player1)
                 {
-                    Logger.Info?.Print(LogClass.Application, $"{index} not configured, defaulting to default keyboard.");
-                    inputId = "0";
+                    // Check if a physical gamepad is connected (e.g. Xbox, PlayStation, Switch Pro Controller)
+                    string firstGamepadId = null;
+                    foreach (string id in _inputManager.GamepadDriver.GamepadsIds)
+                    {
+                        firstGamepadId = id;
+                        break;
+                    }
+
+                    if (!string.IsNullOrEmpty(firstGamepadId))
+                    {
+                        inputId = firstGamepadId;
+                        Logger.Notice.Print(LogClass.Application, $"Auto-detected connected gamepad for {index}: ID \"{inputId}\"");
+                    }
+                    else
+                    {
+                        Logger.Info?.Print(LogClass.Application, $"{index} not configured, defaulting to default keyboard.");
+                        inputId = "0";
+                    }
                 }
                 else
                 {
@@ -50,18 +66,29 @@ namespace Ryujinx.Headless
                 }
             }
 
-            IGamepad gamepad = _inputManager.KeyboardDriver.GetGamepad(inputId);
-            bool isKeyboard = true;
+            IGamepad gamepad = null;
+            bool isKeyboard = false;
+
+            if (inputId != "0")
+            {
+                gamepad = _inputManager.GamepadDriver.GetGamepad(inputId);
+            }
 
             if (gamepad == null)
             {
-                gamepad = _inputManager.GamepadDriver.GetGamepad(inputId);
-                isKeyboard = false;
-
-                if (gamepad == null)
+                gamepad = _inputManager.KeyboardDriver.GetGamepad(inputId);
+                if (gamepad != null)
                 {
-                    Logger.Error?.Print(LogClass.Application, $"{index} gamepad not found (\"{inputId}\")");
-                    return null;
+                    isKeyboard = true;
+                }
+                else
+                {
+                    gamepad = _inputManager.GamepadDriver.GetGamepad(inputId);
+                    if (gamepad == null)
+                    {
+                        Logger.Error?.Print(LogClass.Application, $"{index} gamepad not found (\"{inputId}\")");
+                        return null;
+                    }
                 }
             }
 

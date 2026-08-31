@@ -142,12 +142,10 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
             if (!IsSupportedByHost(context.TranslatorContext.GpuAccessor, context.TranslatorContext.Definitions.Stage, entry.IoVariable))
             {
-                if (entry.IoVariable == IoVariable.ViewportMask)
+                if (entry.IoVariable != IoVariable.ViewportMask)
                 {
-                    return Const(1);
+                    context.TranslatorContext.GpuAccessor.Log($"Attribute offset 0x{offset:X} ({entry.IoVariable}) is not supported by the host for stage {context.TranslatorContext.Definitions.Stage}.");
                 }
-
-                context.TranslatorContext.GpuAccessor.Log($"Attribute offset 0x{offset:X} ({entry.IoVariable}) is not supported by the host for stage {context.TranslatorContext.Definitions.Stage}.");
                 return Const(0);
             }
 
@@ -215,19 +213,10 @@ namespace Ryujinx.Graphics.Shader.Instructions
 
             if (!IsSupportedByHost(context.TranslatorContext.GpuAccessor, context.TranslatorContext.Definitions.Stage, entry.IoVariable))
             {
-                if (entry.IoVariable == IoVariable.ViewportMask)
+                if (entry.IoVariable != IoVariable.ViewportMask)
                 {
-                    // On hosts that lack native NV_viewport_array2 (e.g. macOS MoltenVK),
-                    // route ViewportMask to ViewportIndex by finding the lowest set viewport bit.
-                    Operand lowestViewport = context.FindLSB(value);
-                    Operand isZero = context.ICompareEqual(value, Const(0));
-                    Operand selectedViewport = context.ConditionalSelect(isZero, Const(0), lowestViewport);
-
-                    context.Store(StorageKind.Output, IoVariable.ViewportIndex, invocationId, selectedViewport);
-                    return;
+                    context.TranslatorContext.GpuAccessor.Log($"Attribute offset 0x{offset:X} ({entry.IoVariable}) is not supported by the host for stage {context.TranslatorContext.Definitions.Stage}.");
                 }
-
-                context.TranslatorContext.GpuAccessor.Log($"Attribute offset 0x{offset:X} ({entry.IoVariable}) is not supported by the host for stage {context.TranslatorContext.Definitions.Stage}.");
                 return;
             }
 
