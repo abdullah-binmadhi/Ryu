@@ -448,7 +448,7 @@ namespace Ryujinx.Graphics.Vulkan
                     true);
             }
 
-            _osdRenderer.Draw(_gd, cbs, _swapchainImageViews[nextImage]);
+            _osdRenderer.Draw(_gd, cbs, _swapchainImageViews[nextImage], _osdText, _osdVisible);
 
             Transition(
                 cbs.CommandBuffer,
@@ -489,9 +489,13 @@ namespace Ryujinx.Graphics.Vulkan
             }
         }
 
+        private string _osdText = string.Empty;
+        private bool _osdVisible = true;
+
         public override void SetOsdText(string text, bool visible)
         {
-            _osdRenderer.SetOsdText(_gd, text, visible);
+            _osdText = text;
+            _osdVisible = visible;
         }
 
         public override void SetAntiAliasing(AntiAliasing effect)
