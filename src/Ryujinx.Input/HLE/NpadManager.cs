@@ -2,6 +2,7 @@ using Ryujinx.Common;
 using Ryujinx.Common.Configuration.Hid;
 using Ryujinx.Common.Configuration.Hid.Controller;
 using Ryujinx.Common.Configuration.Hid.Keyboard;
+using Ryujinx.Common.Logging;
 using Ryujinx.HLE.HOS.Services.Hid;
 using System;
 using System.Buffers;
@@ -122,6 +123,31 @@ namespace Ryujinx.Input.HLE
                     {
                         _controllers[i]?.Dispose();
                         _controllers[i] = null;
+                    }
+                }
+
+                // If Player 1 is using keyboard or default fallback, automatically hot-plug bind the newly connected physical gamepad!
+                InputConfig player1Config = _requestedInputConfig.FirstOrDefault(config => (int)config.PlayerIndex == (int)PlayerIndex.Player1);
+                if (player1Config is StandardKeyboardInputConfig || player1Config == null || player1Config.Id == "0")
+                {
+                    IGamepad gamepad = _gamepadDriver.GetGamepad(id);
+                    if (gamepad != null)
+                    {
+                        bool isNintendo = gamepad.Name.Contains("Nintendo", StringComparison.OrdinalIgnoreCase);
+                        string gamepadName = gamepad.Name;
+                        gamepad.Dispose();
+
+                        StandardControllerInputConfig newControllerConfig = InputConfigDefaults.CreateDefaultControllerConfiguration(
+                            id,
+                            gamepadName,
+                            ControllerType.JoyconPair,
+                            Ryujinx.Common.Configuration.Hid.PlayerIndex.Player1,
+                            isNintendo);
+
+                        _requestedInputConfig.RemoveAll(config => (int)config.PlayerIndex == (int)PlayerIndex.Player1);
+                        _requestedInputConfig.Add(newControllerConfig);
+
+                        Logger.Notice.Print(LogClass.Application, $"[Gamepad Hot-Plug] Auto-bound connected gamepad \"{gamepadName}\" ({id}) to Player 1!");
                     }
                 }
 
