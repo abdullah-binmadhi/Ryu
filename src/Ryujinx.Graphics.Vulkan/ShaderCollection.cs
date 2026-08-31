@@ -44,7 +44,7 @@ namespace Ryujinx.Graphics.Vulkan
             {
                 if (LinkStatus == ProgramLinkStatus.Incomplete)
                 {
-                    CheckProgramLink(true);
+                    CheckProgramLink(false);
                 }
 
                 return LinkStatus == ProgramLinkStatus.Success;
