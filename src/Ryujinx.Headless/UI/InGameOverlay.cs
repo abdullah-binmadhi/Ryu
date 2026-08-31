@@ -36,7 +36,7 @@ namespace Ryujinx.Headless.UI
         private static partial IntPtr objc_msgSend_initWindow(IntPtr receiver, IntPtr selector, double x, double y, double w, double h, long styleMask, long backing, [MarshalAs(UnmanagedType.Bool)] bool defer);
 
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
-        private static partial IntPtr objc_msgSend_initView(IntPtr receiver, IntPtr selector, double x, double y, double w, double h);
+        private static partial void objc_msgSend_setFrame(IntPtr receiver, IntPtr selector, double x, double y, double w, double h);
 
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
         private static partial IntPtr objc_msgSend_color(IntPtr receiver, IntPtr selector, double r, double g, double b, double a);
@@ -101,8 +101,8 @@ namespace Ryujinx.Headless.UI
                     IntPtr initSel = sel_registerName("initWithContentRect:styleMask:backing:defer:");
                     IntPtr panelAlloc = objc_msgSend(nsPanelClass, allocSel);
 
-                    // Position in top-left area: (x: 24, y: 760, w: 480, h: 32)
-                    _hudPanel = objc_msgSend_initWindow(panelAlloc, initSel, 24, 760, 480, 32, 0, 2, false);
+                    // Position in top-left: x: 30, y: 700, w: 460, h: 36 (styleMask 128 = NSWindowStyleMaskNonactivatingPanel)
+                    _hudPanel = objc_msgSend_initWindow(panelAlloc, initSel, 30, 700, 460, 36, 128, 2, false);
 
                     if (_hudPanel == IntPtr.Zero)
                     {
@@ -129,21 +129,20 @@ namespace Ryujinx.Headless.UI
 
                     IntPtr contentView = objc_msgSend(_hudPanel, sel_registerName("contentView"));
 
-                    // Create NSTextField for text
+                    // Create NSTextField via labelWithString
                     IntPtr nsTextFieldClass = objc_getClass("NSTextField");
                     IntPtr nsFontClass = objc_getClass("NSFont");
-                    IntPtr labelAlloc = objc_msgSend(nsTextFieldClass, allocSel);
-                    _hudLabel = objc_msgSend_initView(labelAlloc, sel_registerName("initWithFrame:"), 0, 0, 450, 32);
+
+                    IntPtr initialStr = CFStringCreateWithCString(IntPtr.Zero, "FPS: 60.0  (16.6ms)  |  1% Low: 58.5", kCFStringEncodingUTF8);
+                    _hudLabel = objc_msgSend_IntPtr(nsTextFieldClass, sel_registerName("labelWithString:"), initialStr);
+                    if (initialStr != IntPtr.Zero)
+                    {
+                        CFRelease(initialStr);
+                    }
 
                     if (_hudLabel != IntPtr.Zero)
                     {
-                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setBezeled:"), false);
-                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setDrawsBackground:"), false);
-                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setEditable:"), false);
-                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setSelectable:"), false);
-
-                        // Transparent background on label
-                        objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setBackgroundColor:"), clearColor);
+                        objc_msgSend_setFrame(_hudLabel, sel_registerName("setFrame:"), 0, 0, 460, 36);
 
                         // Bright Lime Green (#00FF59)
                         IntPtr colorWithAlphaSel = sel_registerName("colorWithCalibratedRed:green:blue:alpha:");
@@ -153,19 +152,11 @@ namespace Ryujinx.Headless.UI
                             objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setTextColor:"), textColor);
                         }
 
-                        // Bold Font (14pt)
-                        IntPtr boldFont = objc_msgSend_IntPtr(nsFontClass, sel_registerName("boldSystemFontOfSize:"), (IntPtr)14);
+                        // Bold Font (15pt)
+                        IntPtr boldFont = objc_msgSend_IntPtr(nsFontClass, sel_registerName("boldSystemFontOfSize:"), (IntPtr)15);
                         if (boldFont != IntPtr.Zero)
                         {
                             objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setFont:"), boldFont);
-                        }
-
-                        // Initial test string
-                        IntPtr initialStr = CFStringCreateWithCString(IntPtr.Zero, "FPS: 60.0  (16.6ms)  |  1% Low: 58.5", kCFStringEncodingUTF8);
-                        if (initialStr != IntPtr.Zero)
-                        {
-                            objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setStringValue:"), initialStr);
-                            CFRelease(initialStr);
                         }
 
                         objc_msgSend_void_IntPtr(contentView, sel_registerName("addSubview:"), _hudLabel);
@@ -203,6 +194,7 @@ namespace Ryujinx.Headless.UI
                     if (_hudLabel != IntPtr.Zero)
                     {
                         objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setStringValue:"), cfString);
+                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setNeedsDisplay:"), true);
                     }
                     CFRelease(cfString);
                 }
