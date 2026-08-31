@@ -201,5 +201,5 @@ distribution/publish/
 *.nso
 prod.keys
 title.keys
-
-
+[60 FPS]/
+*.pchtxt
