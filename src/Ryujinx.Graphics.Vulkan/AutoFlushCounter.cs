@@ -12,9 +12,11 @@ namespace Ryujinx.Graphics.Vulkan
 
         // How often to flush on draw when fast flush mode is enabled.
         private readonly static long _drawFlushTimer = Stopwatch.Frequency / 666; // (1.5ms)
+        private readonly static long _drawFlushTimerMoltenVk = Stopwatch.Frequency / 120; // (8.3ms for Apple Silicon TBDR)
 
         // Average wait time that triggers fast flush mode to be entered.
         private readonly static long _fastFlushEnterThreshold = Stopwatch.Frequency / 666; // (1.5ms)
+        private readonly static long _fastFlushEnterThresholdMoltenVk = Stopwatch.Frequency / 120; // (8.3ms)
 
         // Average wait time that triggers fast flush mode to be exited.
         private readonly static long _fastFlushExitThreshold = Stopwatch.Frequency / 10000; // (0.1ms)
@@ -23,6 +25,7 @@ namespace Ryujinx.Graphics.Vulkan
         private const int SyncWaitAverageCount = 20;
 
         private const int MinDrawCountForFlush = 10;
+        private const int MinDrawCountForFlushMoltenVk = 64;
         private const int MinConsecutiveQueryForFlush = 10;
         private const int InitialQueryCountForFlush = 32;
 
@@ -98,9 +101,10 @@ namespace Ryujinx.Graphics.Vulkan
         {
             if (_fastFlushMode)
             {
+                long minDraws = _gd.IsMoltenVk ? MinDrawCountForFlushMoltenVk : MinDrawCountForFlush;
                 long draws = (long)(drawCount - _lastDrawCount);
 
-                if (draws < MinDrawCountForFlush)
+                if (draws < minDraws)
                 {
                     if (draws == 0)
                     {
@@ -110,7 +114,7 @@ namespace Ryujinx.Graphics.Vulkan
                     return false;
                 }
 
-                long flushTimeout = _drawFlushTimer;
+                long flushTimeout = _gd.IsMoltenVk ? _drawFlushTimerMoltenVk : _drawFlushTimer;
 
                 long now = Stopwatch.GetTimestamp();
 
@@ -132,9 +136,10 @@ namespace Ryujinx.Graphics.Vulkan
 
             _consecutiveQueries = 0;
 
+            long minDraws = _gd.IsMoltenVk ? MinDrawCountForFlushMoltenVk : MinDrawCountForFlush;
             long draws = (long)(drawCount - _lastDrawCount);
 
-            if (draws < MinDrawCountForFlush)
+            if (draws < minDraws)
             {
                 if (draws == 0)
                 {
@@ -169,7 +174,9 @@ namespace Ryujinx.Graphics.Vulkan
 
             long averageWait = (long)_syncWaitHistory.Average();
 
-            if (_fastFlushMode ? averageWait < _fastFlushExitThreshold : averageWait > _fastFlushEnterThreshold)
+            long enterThreshold = _gd.IsMoltenVk ? _fastFlushEnterThresholdMoltenVk : _fastFlushEnterThreshold;
+
+            if (_fastFlushMode ? averageWait < _fastFlushExitThreshold : averageWait > enterThreshold)
             {
                 _fastFlushMode = !_fastFlushMode;
                 Logger.Debug?.PrintMsg(LogClass.Gpu, $"Switched fast flush mode: ({_fastFlushMode})");
