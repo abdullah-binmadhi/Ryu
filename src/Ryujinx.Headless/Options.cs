@@ -301,6 +301,12 @@ namespace Ryujinx.Headless
         [Option("precompile-shaders", Required = false, HelpText = "Extract and pre-compile all shaders from the specified game ROM into local cache.")]
         public bool PrecompileShaders { get; set; }
 
+        [Option("prebake-all", Required = false, HelpText = "Extract, decompress, and pre-bake all Shaders, GPU Textures, and RomFS VFS Indexes from ROM for zero-stutter open-world gameplay.")]
+        public bool PrebakeAll { get; set; }
+
+        [Option("prebake", Required = false, HelpText = "Extract, decompress, and pre-bake all Shaders, GPU Textures, and RomFS VFS Indexes from ROM for zero-stutter open-world gameplay.")]
+        public bool Prebake { get; set; }
+
         // System
 
         [Option("disable-ptc", Required = false, HelpText = "Disables profiled persistent translation cache.")]
