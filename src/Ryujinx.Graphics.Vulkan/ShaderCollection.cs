@@ -52,6 +52,7 @@ namespace Ryujinx.Graphics.Vulkan
         }
 
         private HashTableSlim<PipelineUid, Auto<DisposablePipeline>> _graphicsPipelineCache;
+        private Auto<DisposablePipeline> _fallbackGraphicsPipeline;
         private HashTableSlim<SpecData, Auto<DisposablePipeline>> _computePipelineCache;
 
         private readonly VulkanRenderer _gd;
@@ -645,6 +646,11 @@ namespace Ryujinx.Graphics.Vulkan
 
         public void AddGraphicsPipeline(ref PipelineUid key, Auto<DisposablePipeline> pipeline)
         {
+            if (pipeline != null)
+            {
+                _fallbackGraphicsPipeline ??= pipeline;
+            }
+
             (_graphicsPipelineCache ??= new()).Add(ref key, pipeline);
         }
 
@@ -668,8 +674,8 @@ namespace Ryujinx.Graphics.Vulkan
         {
             if (_graphicsPipelineCache == null)
             {
-                pipeline = default;
-                return false;
+                pipeline = _fallbackGraphicsPipeline;
+                return pipeline != null;
             }
 
             if (!_graphicsPipelineCache.TryGetValue(ref key, out pipeline))
@@ -680,7 +686,8 @@ namespace Ryujinx.Graphics.Vulkan
                     _firstBackgroundUse = false;
                 }
 
-                return false;
+                pipeline = _fallbackGraphicsPipeline;
+                return pipeline != null;
             }
 
             _firstBackgroundUse = false;
