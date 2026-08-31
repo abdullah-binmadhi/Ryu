@@ -137,11 +137,6 @@ namespace Ryujinx.Headless
         {
             Initialize();
 
-            if (option.EnableMetalHud && OperatingSystem.IsMacOS())
-            {
-                Environment.SetEnvironmentVariable("MTL_HUD_ENABLED", "1");
-            }
-
             bool useLastUsedProfile = false;
 
             if (option.InheritConfig)
