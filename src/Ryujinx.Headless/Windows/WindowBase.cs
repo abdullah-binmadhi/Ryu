@@ -200,6 +200,12 @@ namespace Ryujinx.Headless
             _windowId = SDL_GetWindowID(WindowHandle);
             SDL3Driver.Instance.RegisterWindow(_windowId, HandleWindowEvent);
 
+            // Initialize In-Game HUD Overlay
+            if (OperatingSystem.IsMacOS())
+            {
+                InGameOverlay.Initialize();
+            }
+
             // Start in-terminal Telemetry HUD
             TerminalHud.Start(titleNameSection.TrimStart('-', ' '));
         }
@@ -601,6 +607,10 @@ namespace Ryujinx.Headless
                 if (f7Pressed && !_lastF7KeyDown)
                 {
                     _showOsd = !_showOsd;
+                    if (OperatingSystem.IsMacOS())
+                    {
+                        InGameOverlay.IsVisible = _showOsd;
+                    }
                     if (!_showOsd && WindowHandle != null)
                     {
                         SDL_SetWindowTitle(WindowHandle, _baseWindowTitle);
@@ -617,8 +627,8 @@ namespace Ryujinx.Headless
                 _lastFullscreenHotkeyDown = isFullscreenHotkeyDown;
             }
 
-            // Update real-time on-screen / window title telemetry
-            if (_showOsd && WindowHandle != null && _osdTimer.ElapsedMilliseconds >= 300)
+            // Update real-time on-screen HUD overlay & window title telemetry
+            if (_showOsd && WindowHandle != null && _osdTimer.ElapsedMilliseconds >= 250)
             {
                 _osdTimer.Restart();
                 double fps = Device?.Statistics?.GetGameFrameRate() ?? Ryujinx.Headless.UI.TerminalHud.CurrentFps;
@@ -628,6 +638,10 @@ namespace Ryujinx.Headless
                 string modeStr = (Device?.System?.State?.DockedMode ?? true) ? "Docked" : "Handheld";
                 string fullStr = IsFullscreen ? "Fullscreen" : "Windowed";
 
+                if (OperatingSystem.IsMacOS())
+                {
+                    InGameOverlay.UpdateOverlay(fps, frameTime, low1Percent, filterStr);
+                }
                 SDL_SetWindowTitle(WindowHandle, $"{_baseWindowTitle} | FPS: {fps:F1} ({frameTime:F1}ms) | 1% Low: {low1Percent:F1} | {filterStr} | {modeStr} | {fullStr}");
             }
 
