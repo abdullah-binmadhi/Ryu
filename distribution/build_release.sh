@@ -25,11 +25,16 @@ dotnet publish "$ROOT_DIR/src/Ryujinx.Headless/Ryujinx.Headless.csproj" \
 echo "==> Signing binaries with Hardened Runtime entitlements..."
 codesign --entitlements "$ENTITLEMENTS" -f -s - "$OUTPUT_DIR/Ryu"
 
-# If portable system directory exists, copy keys for local distribution
-if [ -d "$ROOT_DIR/src/Ryujinx.Headless/bin/Release/net10.0/portable" ]; then
-    echo "==> Syncing portable environment..."
+# If portable environment does not exist in publish output, initialize it once.
+# If it already exists, NEVER overwrite it to preserve user save data and settings.
+if [ ! -d "$OUTPUT_DIR/portable" ]; then
+    echo "==> Initializing portable environment..."
     mkdir -p "$OUTPUT_DIR/portable"
-    cp -R "$ROOT_DIR/src/Ryujinx.Headless/bin/Release/net10.0/portable/"* "$OUTPUT_DIR/portable/"
+    if [ -d "$ROOT_DIR/src/Ryujinx.Headless/bin/Release/net10.0/portable" ]; then
+        cp -R "$ROOT_DIR/src/Ryujinx.Headless/bin/Release/net10.0/portable/"* "$OUTPUT_DIR/portable/"
+    fi
+else
+    echo "==> Preserving existing portable save data and configuration in $OUTPUT_DIR/portable"
 fi
 
 echo "=============================================================================="

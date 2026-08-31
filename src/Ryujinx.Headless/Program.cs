@@ -25,9 +25,18 @@ namespace Ryujinx.Headless
             // Set terminal title
             Console.Title = $"Ryu Headless Engine v{Version}";
 
-            // Enable macOS Performance Stack (QoS P-Core Pinning, App Nap Lock, MoltenVK Prefill, Low-Latency GC)
+            // Enable macOS Metal HUD at process start if requested or if MTL_HUD_ENABLED is active
             if (OperatingSystem.IsMacOS())
             {
+                foreach (string arg in args)
+                {
+                    if (arg == "--hud" || arg == "-H" || arg == "--metal-hud")
+                    {
+                        Environment.SetEnvironmentVariable("MTL_HUD_ENABLED", "1");
+                        break;
+                    }
+                }
+
                 DarwinGameMode.InitializePerformanceStack();
             }
 
