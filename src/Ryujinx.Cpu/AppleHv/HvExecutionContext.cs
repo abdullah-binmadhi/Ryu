@@ -277,7 +277,6 @@ namespace Ryujinx.Cpu.AppleHv
                     ReturnToPool(vcpu);
                     ushort id = (ushort)esr;
                     SupervisorCallHandler(elr - 4UL, id);
-                    Thread.Yield(); // MoltenVK causes extremely frequent SVC exits, and HVF handles them in a busy loop. Hypervisor.Framework accelerates the guest CPU, and without periodic yielding/flushing, MoltenVK's presentation queue can starve, causing permanent 0 FPS deadlock.
                     vcpu = RentFromPool(memoryManager.AddressSpace, vcpu);
                     break;
 
