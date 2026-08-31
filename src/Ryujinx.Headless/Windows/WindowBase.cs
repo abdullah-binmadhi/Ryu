@@ -456,6 +456,10 @@ namespace Ryujinx.Headless
             Device.Gpu.Renderer.RunLoop(() =>
             {
                 Device.Gpu.SetGpuThread();
+                if (OperatingSystem.IsMacOS())
+                {
+                    Ryujinx.Common.SystemInterop.DarwinGameMode.TrySetUserInteractiveQos();
+                }
                 Device.Gpu.InitializeShaderCache(_gpuCancellationTokenSource.Token);
 
                 while (_isActive)

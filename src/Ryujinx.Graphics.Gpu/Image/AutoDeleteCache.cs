@@ -89,9 +89,18 @@ namespace Ryujinx.Graphics.Gpu.Image
 
             ulong cacheMemory = (ulong)(context.Capabilities.MaximumGpuMemory * MemoryScaleFactor);
 
-            _maxCacheMemoryUsage = Math.Clamp(cacheMemory, MinTextureSizeCapacity, MaxTextureSizeCapacity);
+            // On macOS Apple Silicon Unified Memory Architecture (UMA), limit texture cache to 1.5 GiB
+            // to keep total process footprint under 3.0 GiB and eliminate macOS memory compression / GC pauses.
+            if (OperatingSystem.IsMacOS())
+            {
+                _maxCacheMemoryUsage = Math.Clamp(cacheMemory, MinTextureSizeCapacity, (ulong)(1.5 * GiB));
+            }
+            else
+            {
+                _maxCacheMemoryUsage = Math.Clamp(cacheMemory, MinTextureSizeCapacity, MaxTextureSizeCapacity);
+            }
 
-            Logger.Info?.Print(LogClass.Gpu, $"AutoDelete Cache Allocated VRAM : {_maxCacheMemoryUsage / GiB} GiB");
+            Logger.Info?.Print(LogClass.Gpu, $"AutoDelete Cache Allocated VRAM : {_maxCacheMemoryUsage / (1024 * 1024)} MB");
         }
 
         /// <summary>
