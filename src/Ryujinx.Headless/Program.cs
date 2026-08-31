@@ -25,10 +25,10 @@ namespace Ryujinx.Headless
             // Set terminal title
             Console.Title = $"Ryu Headless Engine v{Version}";
 
-            // Enable macOS Game Mode hints
+            // Enable macOS Performance Stack (QoS P-Core Pinning, App Nap Lock, MoltenVK Prefill, Low-Latency GC)
             if (OperatingSystem.IsMacOS())
             {
-                DarwinGameMode.TryEnableGameMode();
+                DarwinGameMode.InitializePerformanceStack();
             }
 
             PrintSplash();

@@ -11,6 +11,9 @@
     <TieredCompilation>true</TieredCompilation>
     <PublishReadyToRun>true</PublishReadyToRun>
     <OptimizationPreference>Speed</OptimizationPreference>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <RetainVMGarbageCollection>true</RetainVMGarbageCollection>
     <ApplicationIcon>..\Ryujinx\Ryujinx.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);._*</DefaultItemExcludes>
   </PropertyGroup>
