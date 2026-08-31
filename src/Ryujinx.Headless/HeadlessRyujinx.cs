@@ -219,6 +219,22 @@ namespace Ryujinx.Headless
                 return;
             }
 
+            if (option.ExtractShaders || option.PrecompileShaders)
+            {
+                if (string.IsNullOrEmpty(option.InputPath))
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("[Ryu] Error: Please specify a valid ROM path (e.g. Ryu --extract-shaders \"/path/to/game.xci\")");
+                    Console.ResetColor();
+                    Environment.Exit(1);
+                    return;
+                }
+
+                ShaderExtractor.ExtractAndPrecompile(option.InputPath, _virtualFileSystem);
+                Environment.Exit(0);
+                return;
+            }
+
             if (!string.IsNullOrEmpty(option.InstallFirmwarePath))
             {
                 Logger.Info?.Print(LogClass.Application, $"Installing Firmware from: {option.InstallFirmwarePath}...");

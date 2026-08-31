@@ -295,6 +295,12 @@ namespace Ryujinx.Headless
         [Option("list-input-ids", Required = false, HelpText = "List input IDs.")]
         public bool ListInputIds { get; set; }
 
+        [Option("extract-shaders", Required = false, HelpText = "Extract and pre-compile all shaders from the specified game ROM into local cache.")]
+        public bool ExtractShaders { get; set; }
+
+        [Option("precompile-shaders", Required = false, HelpText = "Extract and pre-compile all shaders from the specified game ROM into local cache.")]
+        public bool PrecompileShaders { get; set; }
+
         // System
 
         [Option("disable-ptc", Required = false, HelpText = "Disables profiled persistent translation cache.")]
