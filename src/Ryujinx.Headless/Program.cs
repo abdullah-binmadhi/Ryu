@@ -25,16 +25,38 @@ namespace Ryujinx.Headless
             // Set terminal title
             Console.Title = $"Ryu Headless Engine v{Version}";
 
-            // Enable macOS Metal HUD at process start if requested or if MTL_HUD_ENABLED is active
+            // Enable macOS Metal HUD at process start if requested
             if (OperatingSystem.IsMacOS())
             {
+                bool wantsHud = false;
                 foreach (string arg in args)
                 {
                     if (arg == "--hud" || arg == "-H" || arg == "--metal-hud")
                     {
-                        Environment.SetEnvironmentVariable("MTL_HUD_ENABLED", "1");
+                        wantsHud = true;
                         break;
                     }
+                }
+
+                if (wantsHud && Environment.GetEnvironmentVariable("MTL_HUD_ENABLED") != "1")
+                {
+                    string processPath = Environment.ProcessPath ?? args[0];
+                    ProcessStartInfo psi = new(processPath)
+                    {
+                        UseShellExecute = false,
+                    };
+
+                    foreach (string arg in args)
+                    {
+                        psi.ArgumentList.Add(arg);
+                    }
+
+                    psi.Environment["MTL_HUD_ENABLED"] = "1";
+
+                    using Process proc = Process.Start(psi);
+                    proc.WaitForExit();
+                    Environment.Exit(proc.ExitCode);
+                    return;
                 }
 
                 DarwinGameMode.InitializePerformanceStack();
