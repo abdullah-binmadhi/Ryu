@@ -18,7 +18,6 @@ namespace Ryujinx.Graphics.Vulkan
         private readonly SurfaceKHR _surface;
         private readonly PhysicalDevice _physicalDevice;
         private readonly Device _device;
-        private readonly VulkanOsdRenderer _osdRenderer = new();
         private SwapchainKHR _swapchain;
 
         private Image[] _swapchainImages;
@@ -343,8 +342,6 @@ namespace Ryujinx.Graphics.Vulkan
 
             Image swapchainImage = _swapchainImages[nextImage];
 
-            _osdRenderer.UpdateTexture(_gd, _osdText, _osdVisible);
-
             _gd.FlushAllCommands();
 
             CommandBufferScoped cbs = _gd.CommandBufferPool.Rent();
@@ -450,8 +447,6 @@ namespace Ryujinx.Graphics.Vulkan
                     true);
             }
 
-            _osdRenderer.Draw(_gd, cbs, _swapchainImageViews[nextImage], _osdVisible);
-
             Transition(
                 cbs.CommandBuffer,
                 swapchainImage,
@@ -491,14 +486,7 @@ namespace Ryujinx.Graphics.Vulkan
             }
         }
 
-        private string _osdText = string.Empty;
-        private bool _osdVisible = true;
-
-        public override void SetOsdText(string text, bool visible)
-        {
-            _osdText = text;
-            _osdVisible = visible;
-        }
+        public override void SetOsdText(string text, bool visible) { }
 
         public override void SetAntiAliasing(AntiAliasing effect)
         {
@@ -686,7 +674,6 @@ namespace Ryujinx.Graphics.Vulkan
 
                 _effect?.Dispose();
                 _scalingFilter?.Dispose();
-                _osdRenderer.Dispose();
             }
         }
 

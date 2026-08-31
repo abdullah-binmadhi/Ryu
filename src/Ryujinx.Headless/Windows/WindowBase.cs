@@ -645,7 +645,10 @@ namespace Ryujinx.Headless
                 if (f7Pressed && !_lastF7KeyDown)
                 {
                     _showOsd = !_showOsd;
-                    Renderer?.Window?.SetOsdText(string.Empty, _showOsd);
+                    if (OperatingSystem.IsMacOS())
+                    {
+                        InGameOverlay.IsVisible = _showOsd;
+                    }
                     if (!_showOsd && WindowHandle != null)
                     {
                         SDL_SetWindowTitle(WindowHandle, _baseWindowTitle);
@@ -663,7 +666,7 @@ namespace Ryujinx.Headless
                 _lastFullscreenHotkeyDown = isFullscreenHotkeyDown;
             }
 
-            // Update real-time on-screen GPU HUD overlay & window title telemetry
+            // Update real-time on-screen HUD overlay & window title telemetry
             if (WindowHandle != null && _osdTimer.ElapsedMilliseconds >= 250)
             {
                 _osdTimer.Restart();
@@ -675,7 +678,11 @@ namespace Ryujinx.Headless
                 string fullStr = IsFullscreen ? "Fullscreen" : "Windowed";
 
                 string osdText = $"FPS: {fps,5:F1} ({frameTime,4:F1}ms) | 1% Low: {low1Percent,4:F1}";
-                Renderer?.Window?.SetOsdText(osdText, _showOsd);
+
+                if (OperatingSystem.IsMacOS())
+                {
+                    InGameOverlay.UpdateOverlay(fps, frameTime, low1Percent, filterStr);
+                }
 
                 if (_showOsd)
                 {

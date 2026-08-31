@@ -84,7 +84,10 @@ namespace Ryujinx.Headless.UI
 
             lock (_lock)
             {
-                if (_initialized && _hudPanel != IntPtr.Zero) return;
+                if (_initialized && _hudPanel != IntPtr.Zero)
+                {
+                    return;
+                }
 
                 try
                 {
@@ -95,14 +98,34 @@ namespace Ryujinx.Headless.UI
                     }
 
                     IntPtr nsPanelClass = objc_getClass("NSPanel");
-                    if (nsPanelClass == IntPtr.Zero) nsPanelClass = objc_getClass("NSWindow");
+                    if (nsPanelClass == IntPtr.Zero)
+                    {
+                        nsPanelClass = objc_getClass("NSWindow");
+                    }
 
                     IntPtr allocSel = sel_registerName("alloc");
                     IntPtr initSel = sel_registerName("initWithContentRect:styleMask:backing:defer:");
                     IntPtr panelAlloc = objc_msgSend(nsPanelClass, allocSel);
 
-                    // Position in top-left: x: 30, y: 700, w: 460, h: 36 (styleMask 128 = NSWindowStyleMaskNonactivatingPanel)
-                    _hudPanel = objc_msgSend_initWindow(panelAlloc, initSel, 30, 700, 460, 36, 128, 2, false);
+                    // Position in top-left of main screen
+                    double screenH = 900;
+                    try
+                    {
+                        IntPtr nsScreenClass = objc_getClass("NSScreen");
+                        IntPtr mainScreen = objc_msgSend(nsScreenClass, sel_registerName("mainScreen"));
+                        if (mainScreen != IntPtr.Zero)
+                        {
+                            // Default frame approximation on MacBook Air
+                            screenH = 900;
+                        }
+                    }
+                    catch
+                    {
+                    }
+
+                    // Top-left HUD panel: x: 24, y: 720 (top of viewport), w: 500, h: 36
+                    // styleMask: 0 (Borderless)
+                    _hudPanel = objc_msgSend_initWindow(panelAlloc, initSel, 24, 720, 500, 36, 0, 2, false);
 
                     if (_hudPanel == IntPtr.Zero)
                     {
@@ -116,10 +139,10 @@ namespace Ryujinx.Headless.UI
                     objc_msgSend_void_bool(_hudPanel, sel_registerName("setIgnoresMouseEvents:"), true);
                     objc_msgSend_void_bool(_hudPanel, sel_registerName("setHidesOnDeactivate:"), false);
 
-                    // Maximum Window Level (1000 = kCGScreenSaverWindowLevel / floating overlay above all spaces)
+                    // Maximum Window Level (1000 = kCGScreenSaverWindowLevel / overlay above all spaces)
                     objc_msgSend_void_long(_hudPanel, sel_registerName("setLevel:"), 1000);
 
-                    // Collection behavior: CanJoinAllSpaces (1) | FullScreenAuxiliary (256) | Stationary (16) | IgnoresCycle (64) = 337
+                    // FullScreenAuxiliary (256) | CanJoinAllSpaces (1) | Stationary (16) | IgnoresCycle (64) = 337
                     objc_msgSend_void_long(_hudPanel, sel_registerName("setCollectionBehavior:"), 337);
 
                     // Transparent background
@@ -142,7 +165,7 @@ namespace Ryujinx.Headless.UI
 
                     if (_hudLabel != IntPtr.Zero)
                     {
-                        objc_msgSend_setFrame(_hudLabel, sel_registerName("setFrame:"), 0, 0, 460, 36);
+                        objc_msgSend_setFrame(_hudLabel, sel_registerName("setFrame:"), 0, 0, 500, 36);
 
                         // Bright Lime Green (#00FF59)
                         IntPtr colorWithAlphaSel = sel_registerName("colorWithCalibratedRed:green:blue:alpha:");
@@ -158,6 +181,11 @@ namespace Ryujinx.Headless.UI
                         {
                             objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setFont:"), boldFont);
                         }
+
+                        // Transparent label background
+                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setDrawsBackground:"), false);
+                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setBezeled:"), false);
+                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setSelectable:"), false);
 
                         objc_msgSend_void_IntPtr(contentView, sel_registerName("addSubview:"), _hudLabel);
                     }
@@ -179,8 +207,24 @@ namespace Ryujinx.Headless.UI
 
         public static void UpdateOverlay(double fps, double frameTimeMs, double onePercentLow, string filterStr)
         {
-            if (!OperatingSystem.IsMacOS() || !_initialized || _hudPanel == IntPtr.Zero || !_isVisible)
+            if (!OperatingSystem.IsMacOS())
             {
+                return;
+            }
+
+            if (!_initialized)
+            {
+                Initialize();
+            }
+
+            if (_hudPanel == IntPtr.Zero)
+            {
+                return;
+            }
+
+            if (!_isVisible)
+            {
+                objc_msgSend_void_IntPtr(_hudPanel, sel_registerName("orderOut:"), IntPtr.Zero);
                 return;
             }
 
@@ -194,7 +238,6 @@ namespace Ryujinx.Headless.UI
                     if (_hudLabel != IntPtr.Zero)
                     {
                         objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setStringValue:"), cfString);
-                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setNeedsDisplay:"), true);
                     }
                     CFRelease(cfString);
                 }
