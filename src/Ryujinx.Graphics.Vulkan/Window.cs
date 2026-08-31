@@ -111,7 +111,8 @@ namespace Ryujinx.Graphics.Vulkan
                 _gd.SurfaceApi.GetPhysicalDeviceSurfacePresentModes(_physicalDevice, _surface, &presentModesCount, pPresentModes);
             }
 
-            uint imageCount = capabilities.MinImageCount + 1;
+            // Enforce Triple Buffering (minimum 3 in-flight images) to eliminate swapchain backpressure
+            uint imageCount = Math.Max(capabilities.MinImageCount + 1, 3u);
             if (capabilities.MaxImageCount > 0 && imageCount > capabilities.MaxImageCount)
             {
                 imageCount = capabilities.MaxImageCount;

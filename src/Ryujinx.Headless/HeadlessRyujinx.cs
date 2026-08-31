@@ -78,7 +78,14 @@ namespace Ryujinx.Headless
                 MVKInitialization.InitializeResolver();
             }
 
-            Parser.Default.ParseArguments<Options>(args)
+            using var parser = new Parser(config =>
+            {
+                config.CaseInsensitiveEnumValues = true;
+                config.CaseSensitive = false;
+                config.HelpWriter = Console.Out;
+            });
+
+            parser.ParseArguments<Options>(args)
                 .WithParsed(options => Load(args, options))
                 .WithNotParsed(errors =>
                 {

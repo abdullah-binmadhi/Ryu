@@ -43,6 +43,9 @@ namespace Ryujinx.Graphics.Gpu.Image
 
         private readonly ReaderWriterLockSlim _texturesLock;
 
+        private Texture _lastFoundTexture;
+        private ulong _lastFoundAddress;
+
         private Texture[] _textureOverlaps;
         private OverlapInfo[] _overlapInfo;
 
@@ -695,6 +698,18 @@ namespace Ryujinx.Graphics.Gpu.Image
                 }
             }
 
+            // Fast-path: Check if the last resolved texture matches exactly without acquiring lock
+            Texture last = _lastFoundTexture;
+            if (last != null && _lastFoundAddress == address && last.IsExactMatch(info, flags) == TextureMatchQuality.Perfect)
+            {
+                if (range == null || last.Range.Equals(range.Value))
+                {
+                    DiscardIfNeeded(discard, last, sizeHint);
+                    last.SynchronizeMemory();
+                    return last;
+                }
+            }
+
             int sameAddressOverlapsCount;
 
             _texturesLock.EnterReadLock();
@@ -757,6 +772,9 @@ namespace Ryujinx.Graphics.Gpu.Image
                 DiscardIfNeeded(discard, texture, sizeHint);
 
                 texture.SynchronizeMemory();
+
+                _lastFoundTexture = texture;
+                _lastFoundAddress = address;
 
                 return texture;
             }
@@ -1149,6 +1167,12 @@ namespace Ryujinx.Graphics.Gpu.Image
                 _textureOverlaps[i].DecrementReferenceCount();
             }
 
+            if (texture != null)
+            {
+                _lastFoundTexture = texture;
+                _lastFoundAddress = address;
+            }
+
             return texture;
         }
 
@@ -1353,6 +1377,7 @@ namespace Ryujinx.Graphics.Gpu.Image
             try
             {
                 _textures.Remove(texture);
+                _lastFoundTexture = null;
             }
             finally
             {

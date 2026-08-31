@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace Ryujinx.Graphics.Texture.Astc
 {
@@ -277,8 +278,8 @@ namespace Ryujinx.Graphics.Texture.Astc
         {
             AstcDecoder decoder = new(data, outputBuffer, blockWidth, blockHeight, width, height, depth, levels, layers);
 
-            // Lazy parallelism
-            Enumerable.Range(0, decoder.TotalBlockCount).AsParallel().ForAll(x => decoder.ProcessBlock(x));
+            // High-throughput parallel block decoding via thread pool
+            Parallel.For(0, decoder.TotalBlockCount, x => decoder.ProcessBlock(x));
 
             return decoder.Success;
         }
@@ -298,7 +299,7 @@ namespace Ryujinx.Graphics.Texture.Astc
 
             AstcDecoder decoder = new(data, decoded.Memory, blockWidth, blockHeight, width, height, depth, levels, layers);
 
-            Enumerable.Range(0, decoder.TotalBlockCount).AsParallel().ForAll(x => decoder.ProcessBlock(x));
+            Parallel.For(0, decoder.TotalBlockCount, x => decoder.ProcessBlock(x));
 
             return decoder.Success;
         }
