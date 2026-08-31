@@ -38,8 +38,9 @@ namespace Ryujinx.Graphics.Vulkan.MoltenVK
             config.PreallocateDescriptors = true;
             config.MaxActiveMetalCommandBuffersPerQueue = 64;
 
-            // 5. Asynchronous Queue Submits (Zero Spin-Wait CPU Blocking)
-            config.SemaphoreSupportStyle = MVKVkSemaphoreSupportStyle.MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE_SINGLE_QUEUE;
+            // 5. Hardware Metal Events & Multi-Queue Overlapping (Zero CPU Wait on Semaphores)
+            config.SemaphoreSupportStyle = MVKVkSemaphoreSupportStyle.MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE_METAL_EVENTS_WHERE_SAFE;
+            config.SemaphoreUseMTLFence = true;
             config.SynchronousQueueSubmits = false;
 
             // 6. Device Lost Recovery Hook
