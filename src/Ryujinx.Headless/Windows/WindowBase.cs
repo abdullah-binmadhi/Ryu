@@ -155,19 +155,21 @@ namespace Ryujinx.Headless
 
             Width = DefaultWidth;
             Height = DefaultHeight;
+            DefaultFlags = SDL_WindowFlags.SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WindowFlags.SDL_WINDOW_RESIZABLE | SDL_WindowFlags.SDL_WINDOW_INPUT_FOCUS;
 
             if (IsExclusiveFullscreen)
             {
                 Width = ExclusiveFullscreenWidth;
                 Height = ExclusiveFullscreenHeight;
-
-                DefaultFlags = SDL_WindowFlags.SDL_WINDOW_HIGH_PIXEL_DENSITY;
                 FullscreenFlag = SDL_WindowFlags.SDL_WINDOW_FULLSCREEN;
             }
             else if (IsFullscreen)
             {
-                DefaultFlags = SDL_WindowFlags.SDL_WINDOW_HIGH_PIXEL_DENSITY;
                 FullscreenFlag = SDL_WindowFlags.SDL_WINDOW_FULLSCREEN;
+            }
+            else
+            {
+                FullscreenFlag = 0;
             }
 
             SDL_PropertiesID props = SDL_CreateProperties();
@@ -202,6 +204,8 @@ namespace Ryujinx.Headless
             TerminalHud.Start(titleNameSection.TrimStart('-', ' '));
         }
 
+        private long _lastFullscreenToggleTimestamp;
+
         public void ToggleFullscreen()
         {
             if (WindowHandle == null)
@@ -209,12 +213,20 @@ namespace Ryujinx.Headless
                 return;
             }
 
+            long now = Stopwatch.GetTimestamp();
+            if ((now - _lastFullscreenToggleTimestamp) * 1000 / Stopwatch.Frequency < 300)
+            {
+                return;
+            }
+            _lastFullscreenToggleTimestamp = now;
+
             SDL_WindowFlags currentFlags = SDL_GetWindowFlags(WindowHandle);
             bool isCurrentlyFullscreen = (currentFlags & SDL_WindowFlags.SDL_WINDOW_FULLSCREEN) != 0;
             bool targetFullscreen = !isCurrentlyFullscreen;
 
             SDL_SetWindowFullscreen(WindowHandle, targetFullscreen);
             IsFullscreen = targetFullscreen;
+            Logger.Info?.Print(LogClass.Application, $"Fullscreen mode toggled: {(targetFullscreen ? "Enabled" : "Disabled")}");
         }
 
         private void HandleWindowEvent(SDL_Event evnt)
@@ -242,17 +254,6 @@ namespace Ryujinx.Headless
                 if (isMacQuit || isWinQuit)
                 {
                     Exit();
-                    return;
-                }
-
-                // Handle Fullscreen Toggle: F11, Cmd+F, or Alt+Enter
-                bool isFullscreenToggle = key == SDL_Keycode.SDLK_F11 || scancode == SDL_Scancode.SDL_SCANCODE_F11 ||
-                    (OperatingSystem.IsMacOS() && isGui && (key == SDL_Keycode.SDLK_F || scancode == SDL_Scancode.SDL_SCANCODE_F)) ||
-                    (isAlt && (key == SDL_Keycode.SDLK_RETURN || scancode == SDL_Scancode.SDL_SCANCODE_RETURN));
-
-                if (isFullscreenToggle)
-                {
-                    ToggleFullscreen();
                     return;
                 }
             }
