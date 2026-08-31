@@ -343,6 +343,8 @@ namespace Ryujinx.Graphics.Vulkan
 
             Image swapchainImage = _swapchainImages[nextImage];
 
+            _osdRenderer.UpdateTexture(_gd, _osdText, _osdVisible);
+
             _gd.FlushAllCommands();
 
             CommandBufferScoped cbs = _gd.CommandBufferPool.Rent();
@@ -448,7 +450,7 @@ namespace Ryujinx.Graphics.Vulkan
                     true);
             }
 
-            _osdRenderer.Draw(_gd, cbs, _swapchainImageViews[nextImage], _osdText, _osdVisible);
+            _osdRenderer.Draw(_gd, cbs, _swapchainImageViews[nextImage], _osdVisible);
 
             Transition(
                 cbs.CommandBuffer,

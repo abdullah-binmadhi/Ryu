@@ -14,7 +14,7 @@ namespace Ryujinx.Graphics.Vulkan
         private string _lastText = string.Empty;
         private readonly object _lock = new();
 
-        public void Draw(VulkanRenderer gd, CommandBufferScoped cbs, TextureView dst, string text, bool visible)
+        public void UpdateTexture(VulkanRenderer gd, string text, bool visible)
         {
             if (!visible || string.IsNullOrEmpty(text))
             {
@@ -23,29 +23,37 @@ namespace Ryujinx.Graphics.Vulkan
 
             lock (_lock)
             {
-                if (text != _lastText || _texture == null)
+                if (text == _lastText && _texture != null)
                 {
-                    _lastText = text;
-                    EnsureTexture(gd);
-
-                    byte[] pixelBuffer = new byte[TextureWidth * TextureHeight * 4];
-
-                    int cursorX = 4;
-                    int cursorY = 8; // Vertically centered
-
-                    for (int i = 0; i < text.Length && cursorX + 10 < TextureWidth; i++)
-                    {
-                        char c = text[i];
-                        DrawChar(pixelBuffer, cursorX, cursorY, c);
-                        cursorX += 9;
-                    }
-
-                    _textWidth = cursorX + 6;
-
-                    _texture.SetData(MemoryOwner<byte>.RentCopy(pixelBuffer));
+                    return;
                 }
 
-                if (_texture == null || _textWidth <= 0)
+                _lastText = text;
+                EnsureTexture(gd);
+
+                byte[] pixelBuffer = new byte[TextureWidth * TextureHeight * 4];
+
+                int cursorX = 4;
+                int cursorY = 8; // Vertically centered
+
+                for (int i = 0; i < text.Length && cursorX + 10 < TextureWidth; i++)
+                {
+                    char c = text[i];
+                    DrawChar(pixelBuffer, cursorX, cursorY, c);
+                    cursorX += 9;
+                }
+
+                _textWidth = cursorX + 6;
+
+                _texture.SetData(MemoryOwner<byte>.RentCopy(pixelBuffer));
+            }
+        }
+
+        public void Draw(VulkanRenderer gd, CommandBufferScoped cbs, TextureView dst, bool visible)
+        {
+            lock (_lock)
+            {
+                if (!visible || _texture == null || _textWidth <= 0)
                 {
                     return;
                 }
