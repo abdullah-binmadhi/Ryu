@@ -124,7 +124,7 @@ namespace Ryujinx.Headless
                     config = InputConfigDefaults.CreateDefaultControllerConfiguration(
                         null,
                         null,
-                        ControllerType.JoyconPair,
+                        ControllerType.ProController,
                         index,
                         isNintendoStyle);
                 }

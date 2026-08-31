@@ -140,7 +140,7 @@ namespace Ryujinx.Input.HLE
                         StandardControllerInputConfig newControllerConfig = InputConfigDefaults.CreateDefaultControllerConfiguration(
                             id,
                             gamepadName,
-                            ControllerType.JoyconPair,
+                            ControllerType.ProController,
                             Ryujinx.Common.Configuration.Hid.PlayerIndex.Player1,
                             isNintendo);
 

@@ -199,6 +199,8 @@ namespace Ryujinx.Headless
             {
                 Logger.Info?.Print(LogClass.Application, "Input Ids:");
 
+                Thread.Sleep(200);
+
                 foreach (string id in _inputManager.KeyboardDriver.GamepadsIds)
                 {
                     IGamepad gamepad = _inputManager.KeyboardDriver.GetGamepad(id);
@@ -213,6 +215,7 @@ namespace Ryujinx.Headless
                     gamepad.Dispose();
                 }
 
+                Environment.Exit(0);
                 return;
             }
 
