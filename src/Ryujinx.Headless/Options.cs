@@ -421,6 +421,9 @@ namespace Ryujinx.Headless
         [Option("scaling-filter-level", Required = false, Default = 0, HelpText = "Set the scaling filter intensity (currently only applies to FSR). [0-100]")]
         public int ScalingFilterLevel { get; set; }
 
+        [Option("hud", Required = false, Default = false, HelpText = "Enable Apple's native Metal Performance HUD overlay (real-time FPS, frame interval graph, GPU compute load).")]
+        public bool EnableMetalHud { get; set; }
+
         // Hacks
 
         [Option("dram-size", Required = false, Default = MemoryConfiguration.MemoryConfiguration4GiB, HelpText = "Set the RAM amount on the emulated system.")]
