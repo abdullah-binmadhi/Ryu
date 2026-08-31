@@ -423,5 +423,7 @@ namespace Ryujinx.Graphics.OpenGL
             _scalingFilterLevel = level;
             _updateScalingFilter = true;
         }
+
+        public void SetOsdText(string text, bool visible) { }
     }
 }

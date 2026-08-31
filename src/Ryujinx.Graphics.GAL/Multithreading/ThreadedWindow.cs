@@ -41,5 +41,10 @@ namespace Ryujinx.Graphics.GAL.Multithreading
         public void SetScalingFilterLevel(float level) { }
 
         public void SetColorSpacePassthrough(bool colorSpacePassthroughEnabled) { }
+
+        public void SetOsdText(string text, bool visible)
+        {
+            _impl.Window.SetOsdText(text, visible);
+        }
     }
 }

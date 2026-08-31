@@ -16,5 +16,6 @@ namespace Ryujinx.Graphics.Vulkan
         public abstract void SetScalingFilter(ScalingFilter scalerType);
         public abstract void SetScalingFilterLevel(float scale);
         public abstract void SetColorSpacePassthrough(bool colorSpacePassthroughEnabled);
+        public abstract void SetOsdText(string text, bool visible);
     }
 }

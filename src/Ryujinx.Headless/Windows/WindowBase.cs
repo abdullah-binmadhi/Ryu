@@ -645,10 +645,7 @@ namespace Ryujinx.Headless
                 if (f7Pressed && !_lastF7KeyDown)
                 {
                     _showOsd = !_showOsd;
-                    if (OperatingSystem.IsMacOS())
-                    {
-                        InGameOverlay.IsVisible = _showOsd;
-                    }
+                    Renderer?.Window?.SetOsdText(string.Empty, _showOsd);
                     if (!_showOsd && WindowHandle != null)
                     {
                         SDL_SetWindowTitle(WindowHandle, _baseWindowTitle);
@@ -666,8 +663,8 @@ namespace Ryujinx.Headless
                 _lastFullscreenHotkeyDown = isFullscreenHotkeyDown;
             }
 
-            // Update real-time on-screen HUD overlay & window title telemetry
-            if (_showOsd && WindowHandle != null && _osdTimer.ElapsedMilliseconds >= 250)
+            // Update real-time on-screen GPU HUD overlay & window title telemetry
+            if (WindowHandle != null && _osdTimer.ElapsedMilliseconds >= 250)
             {
                 _osdTimer.Restart();
                 double fps = Device?.Statistics?.GetGameFrameRate() ?? Ryujinx.Headless.UI.TerminalHud.CurrentFps;
@@ -677,11 +674,13 @@ namespace Ryujinx.Headless
                 string modeStr = (Device?.System?.State?.DockedMode ?? true) ? "Docked" : "Handheld";
                 string fullStr = IsFullscreen ? "Fullscreen" : "Windowed";
 
-                if (OperatingSystem.IsMacOS())
+                string osdText = $"FPS: {fps,5:F1} ({frameTime,4:F1}ms) | 1% Low: {low1Percent,4:F1}";
+                Renderer?.Window?.SetOsdText(osdText, _showOsd);
+
+                if (_showOsd)
                 {
-                    InGameOverlay.UpdateOverlay(fps, frameTime, low1Percent, filterStr);
+                    SDL_SetWindowTitle(WindowHandle, $"{_baseWindowTitle} | {osdText} | {filterStr} | {modeStr} | {fullStr}");
                 }
-                SDL_SetWindowTitle(WindowHandle, $"{_baseWindowTitle} | FPS: {fps:F1} ({frameTime:F1}ms) | 1% Low: {low1Percent:F1} | {filterStr} | {modeStr} | {fullStr}");
             }
 
             Device.Hid.DebugPad.Update();

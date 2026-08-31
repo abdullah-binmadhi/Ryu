@@ -18,6 +18,7 @@ namespace Ryujinx.Graphics.Vulkan
         private readonly SurfaceKHR _surface;
         private readonly PhysicalDevice _physicalDevice;
         private readonly Device _device;
+        private readonly VulkanOsdRenderer _osdRenderer = new();
         private SwapchainKHR _swapchain;
 
         private Image[] _swapchainImages;
@@ -447,6 +448,8 @@ namespace Ryujinx.Graphics.Vulkan
                     true);
             }
 
+            _osdRenderer.Draw(_gd, cbs, _swapchainImageViews[nextImage]);
+
             Transition(
                 cbs.CommandBuffer,
                 swapchainImage,
@@ -484,6 +487,11 @@ namespace Ryujinx.Graphics.Vulkan
             {
                 _gd.SwapchainApi.QueuePresent(_gd.Queue, in presentInfo);
             }
+        }
+
+        public override void SetOsdText(string text, bool visible)
+        {
+            _osdRenderer.SetOsdText(_gd, text, visible);
         }
 
         public override void SetAntiAliasing(AntiAliasing effect)
@@ -672,6 +680,7 @@ namespace Ryujinx.Graphics.Vulkan
 
                 _effect?.Dispose();
                 _scalingFilter?.Dispose();
+                _osdRenderer.Dispose();
             }
         }
 

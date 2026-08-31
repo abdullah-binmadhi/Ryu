@@ -1,0 +1,214 @@
+using Ryujinx.Common.Memory;
+using Ryujinx.Graphics.GAL;
+using System;
+
+namespace Ryujinx.Graphics.Vulkan
+{
+    internal class VulkanOsdRenderer : IDisposable
+    {
+        private const int TextureWidth = 512;
+        private const int TextureHeight = 32;
+
+        private TextureView _texture;
+        private bool _visible;
+        private int _textWidth;
+        private string _lastText = string.Empty;
+        private readonly object _lock = new();
+
+        public void SetOsdText(VulkanRenderer gd, string text, bool visible)
+        {
+            lock (_lock)
+            {
+                _visible = visible;
+
+                if (!visible)
+                {
+                    return;
+                }
+
+                if (text == _lastText && _texture != null)
+                {
+                    return;
+                }
+
+                _lastText = text;
+
+                EnsureTexture(gd);
+
+                byte[] pixelBuffer = new byte[TextureWidth * TextureHeight * 4];
+
+                int cursorX = 4;
+                int cursorY = 8; // Vertically centered in 32px height
+
+                for (int i = 0; i < text.Length && cursorX + 10 < TextureWidth; i++)
+                {
+                    char c = text[i];
+                    DrawChar(pixelBuffer, cursorX, cursorY, c);
+                    cursorX += 9;
+                }
+
+                _textWidth = cursorX + 6;
+
+                _texture.SetData(MemoryOwner<byte>.RentCopy(pixelBuffer));
+            }
+        }
+
+        public void Draw(VulkanRenderer gd, CommandBufferScoped cbs, TextureView dst)
+        {
+            lock (_lock)
+            {
+                if (!_visible || _texture == null || _textWidth <= 0)
+                {
+                    return;
+                }
+
+                gd.HelperShader.BlitColor(
+                    gd,
+                    cbs,
+                    _texture,
+                    dst,
+                    new Extents2D(0, 0, _textWidth, TextureHeight),
+                    new Extents2D(24, 24, 24 + _textWidth, 24 + TextureHeight),
+                    false,
+                    false);
+            }
+        }
+
+        private void EnsureTexture(VulkanRenderer gd)
+        {
+            if (_texture != null)
+            {
+                return;
+            }
+
+            TextureCreateInfo info = new(
+                TextureWidth,
+                TextureHeight,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                Format.R8G8B8A8Unorm,
+                DepthStencilMode.Depth,
+                Target.Texture2D,
+                SwizzleComponent.Red,
+                SwizzleComponent.Green,
+                SwizzleComponent.Blue,
+                SwizzleComponent.Alpha);
+
+            _texture = gd.CreateTexture(info) as TextureView;
+        }
+
+        private static void DrawChar(byte[] buffer, int x0, int y0, char c)
+        {
+            byte[] glyph = FontData.GetGlyph(c);
+
+            for (int row = 0; row < 16; row++)
+            {
+                byte rowBits = glyph[row];
+                for (int col = 0; col < 8; col++)
+                {
+                    if ((rowBits & (0x80 >> col)) != 0)
+                    {
+                        int px = x0 + col;
+                        int py = y0 + row;
+
+                        // Draw Drop Shadow (1px offset)
+                        SetPixel(buffer, px + 1, py + 1, 0, 0, 0, 220);
+                        SetPixel(buffer, px + 1, py, 0, 0, 0, 160);
+                        SetPixel(buffer, px, py + 1, 0, 0, 0, 160);
+
+                        // Draw Crisp Lime Green Foreground (#00FF50)
+                        SetPixel(buffer, px, py, 0, 255, 80, 255);
+                    }
+                }
+            }
+        }
+
+        private static void SetPixel(byte[] buffer, int x, int y, byte r, byte g, byte b, byte a)
+        {
+            if (x < 0 || x >= TextureWidth || y < 0 || y >= TextureHeight)
+            {
+                return;
+            }
+
+            int idx = (y * TextureWidth + x) * 4;
+
+            // Simple alpha blend over existing buffer
+            byte existingA = buffer[idx + 3];
+            if (a >= existingA)
+            {
+                buffer[idx + 0] = r;
+                buffer[idx + 1] = g;
+                buffer[idx + 2] = b;
+                buffer[idx + 3] = a;
+            }
+        }
+
+        public void Dispose()
+        {
+            _texture?.Dispose();
+            _texture = null;
+        }
+
+        private static class FontData
+        {
+            private static readonly byte[][] CustomGlyphs = new byte[128][];
+
+            static FontData()
+            {
+                // Initialize default empty glyphs
+                for (int i = 0; i < 128; i++)
+                {
+                    CustomGlyphs[i] = new byte[16];
+                }
+
+                // Digits 0-9
+                CustomGlyphs['0'] = [0x00, 0x3C, 0x66, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0x66, 0x3C, 0x00, 0x00];
+                CustomGlyphs['1'] = [0x00, 0x18, 0x38, 0x78, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00, 0x00];
+                CustomGlyphs['2'] = [0x00, 0x7C, 0xC6, 0x06, 0x06, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0xC0, 0xC6, 0xFE, 0x00, 0x00];
+                CustomGlyphs['3'] = [0x00, 0x7C, 0xC6, 0x06, 0x06, 0x06, 0x1C, 0x06, 0x06, 0x06, 0x06, 0x06, 0xC6, 0x7C, 0x00, 0x00];
+                CustomGlyphs['4'] = [0x00, 0x0C, 0x1C, 0x3C, 0x6C, 0xCC, 0xCC, 0xCC, 0xFE, 0x0C, 0x0C, 0x0C, 0x0C, 0x1E, 0x00, 0x00];
+                CustomGlyphs['5'] = [0x00, 0xFE, 0xC0, 0xC0, 0xC0, 0xC0, 0xFC, 0x06, 0x06, 0x06, 0x06, 0x06, 0xC6, 0x7C, 0x00, 0x00];
+                CustomGlyphs['6'] = [0x00, 0x38, 0x60, 0xC0, 0xC0, 0xC0, 0xFC, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00, 0x00];
+                CustomGlyphs['7'] = [0x00, 0xFE, 0xC6, 0x06, 0x06, 0x0C, 0x0C, 0x18, 0x18, 0x30, 0x30, 0x60, 0x60, 0x60, 0x00, 0x00];
+                CustomGlyphs['8'] = [0x00, 0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00, 0x00];
+                CustomGlyphs['9'] = [0x00, 0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0x06, 0x06, 0x06, 0x0C, 0x38, 0x00, 0x00];
+
+                // Letters F, P, S, L, o, w, m, s, D, c, k, e, d, H, a, n, etc.
+                CustomGlyphs['F'] = [0x00, 0xFE, 0xC0, 0xC0, 0xC0, 0xC0, 0xF8, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x00, 0x00];
+                CustomGlyphs['P'] = [0x00, 0xFC, 0xC6, 0xC6, 0xC6, 0xC6, 0xFC, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x00, 0x00];
+                CustomGlyphs['S'] = [0x00, 0x7C, 0xC6, 0xC0, 0xC0, 0x60, 0x38, 0x0C, 0x06, 0x06, 0x06, 0xC6, 0xC6, 0x7C, 0x00, 0x00];
+                CustomGlyphs['L'] = [0x00, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xFE, 0x00, 0x00];
+                CustomGlyphs['R'] = [0x00, 0xFC, 0xC6, 0xC6, 0xC6, 0xC6, 0xFC, 0xD8, 0xCC, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x00, 0x00];
+                CustomGlyphs['o'] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00, 0x00];
+                CustomGlyphs['w'] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC6, 0xC6, 0xC6, 0xD6, 0xD6, 0xFE, 0x6C, 0x6C, 0x00, 0x00];
+                CustomGlyphs['m'] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xDC, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x00, 0x00];
+                CustomGlyphs['s'] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7C, 0xC6, 0xC0, 0x7C, 0x06, 0x06, 0xC6, 0x7C, 0x00, 0x00];
+                CustomGlyphs['a'] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7C, 0x06, 0x06, 0x7E, 0xC6, 0xC6, 0xC6, 0x7E, 0x00, 0x00];
+                CustomGlyphs['e'] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7C, 0xC6, 0xC6, 0xFE, 0xC0, 0xC0, 0xC6, 0x7C, 0x00, 0x00];
+
+                // Punctuation and symbols
+                CustomGlyphs[':'] = [0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00];
+                CustomGlyphs['.'] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00];
+                CustomGlyphs['('] = [0x00, 0x0C, 0x18, 0x30, 0x30, 0x60, 0x60, 0x60, 0x60, 0x60, 0x30, 0x30, 0x18, 0x0C, 0x00, 0x00];
+                CustomGlyphs[')'] = [0x00, 0x30, 0x18, 0x0C, 0x0C, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0C, 0x0C, 0x18, 0x30, 0x00, 0x00];
+                CustomGlyphs['|'] = [0x00, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x00];
+                CustomGlyphs['%'] = [0x00, 0xC6, 0xCC, 0x18, 0x30, 0x60, 0xC0, 0x18, 0x30, 0x60, 0xC0, 0x18, 0x33, 0x63, 0x00, 0x00];
+                CustomGlyphs['-'] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7E, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+                CustomGlyphs[' '] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+            }
+
+            public static byte[] GetGlyph(char c)
+            {
+                if (c < 128 && CustomGlyphs[c] != null)
+                {
+                    return CustomGlyphs[c];
+                }
+                return CustomGlyphs[' '];
+            }
+        }
+    }
+}
