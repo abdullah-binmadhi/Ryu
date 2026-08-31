@@ -33,6 +33,9 @@ namespace Ryujinx.Headless.UI
         private static partial void objc_msgSend_void_ulong(IntPtr receiver, IntPtr selector, ulong arg1);
 
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
+        private static partial void objc_msgSend_void_double(IntPtr receiver, IntPtr selector, double arg1);
+
+        [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
         private static partial IntPtr objc_msgSend_initView(IntPtr receiver, IntPtr selector, double x, double y, double w, double h);
 
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
@@ -83,14 +86,9 @@ namespace Ryujinx.Headless.UI
                     IntPtr nsApp = objc_msgSend(nsAppClass, sel_registerName("sharedApplication"));
                     if (nsApp == IntPtr.Zero) return;
 
-                    // Get main game NSWindow
                     IntPtr gameWindow = objc_msgSend(nsApp, sel_registerName("keyWindow"));
-                    if (gameWindow == IntPtr.Zero)
-                    {
-                        gameWindow = objc_msgSend(nsApp, sel_registerName("mainWindow"));
-                    }
+                    if (gameWindow == IntPtr.Zero) gameWindow = objc_msgSend(nsApp, sel_registerName("mainWindow"));
 
-                    // If windows not ready yet, try windows array
                     if (gameWindow == IntPtr.Zero)
                     {
                         IntPtr windowsArray = objc_msgSend(nsApp, sel_registerName("windows"));
@@ -101,41 +99,40 @@ namespace Ryujinx.Headless.UI
                         }
                     }
 
-                    if (gameWindow == IntPtr.Zero)
-                    {
-                        return;
-                    }
+                    if (gameWindow == IntPtr.Zero) return;
 
                     IntPtr mainContentView = objc_msgSend(gameWindow, sel_registerName("contentView"));
-                    if (mainContentView == IntPtr.Zero)
-                    {
-                        return;
-                    }
+                    if (mainContentView == IntPtr.Zero) return;
 
                     IntPtr allocSel = sel_registerName("alloc");
                     IntPtr nsTextFieldClass = objc_getClass("NSTextField");
                     IntPtr nsColorClass = objc_getClass("NSColor");
                     IntPtr nsFontClass = objc_getClass("NSFont");
 
-                    // Create NSTextField directly as subview pinned to top-left (x: 16, y: height - 38, w: 450, h: 28)
+                    // Create NSTextField pinned at top-left
                     IntPtr labelAlloc = objc_msgSend(nsTextFieldClass, allocSel);
-                    _hudLabel = objc_msgSend_initView(labelAlloc, sel_registerName("initWithFrame:"), 16, 680, 450, 28);
+                    _hudLabel = objc_msgSend_initView(labelAlloc, sel_registerName("initWithFrame:"), 20, 680, 500, 30);
 
-                    if (_hudLabel == IntPtr.Zero)
-                    {
-                        return;
-                    }
+                    if (_hudLabel == IntPtr.Zero) return;
 
-                    // Autoresizing mask: NSViewMinYMargin (8) + NSViewMaxXMargin (4) = 12 (pinned to top-left permanently)
-                    objc_msgSend_void_ulong(_hudLabel, sel_registerName("setAutoresizingMask:"), 12);
+                    // Autoresizing mask: NSViewMinYMargin (8) keeps it pinned to top of window
+                    objc_msgSend_void_ulong(_hudLabel, sel_registerName("setAutoresizingMask:"), 8);
 
-                    // Transparent styling
+                    // Transparent styling - NO black bars or background boxes
                     objc_msgSend_void_bool(_hudLabel, sel_registerName("setBezeled:"), false);
                     objc_msgSend_void_bool(_hudLabel, sel_registerName("setDrawsBackground:"), false);
                     objc_msgSend_void_bool(_hudLabel, sel_registerName("setEditable:"), false);
                     objc_msgSend_void_bool(_hudLabel, sel_registerName("setSelectable:"), false);
 
-                    // High contrast Lime Green (#00FF59)
+                    // Crucial for CAMetalLayer composition: enable Layer-backed rendering with highest Z-order
+                    objc_msgSend_void_bool(_hudLabel, sel_registerName("setWantsLayer:"), true);
+                    IntPtr layer = objc_msgSend(_hudLabel, sel_registerName("layer"));
+                    if (layer != IntPtr.Zero)
+                    {
+                        objc_msgSend_void_double(layer, sel_registerName("setZPosition:"), 99999.0);
+                    }
+
+                    // Bright Lime Green (#00FF59)
                     IntPtr colorWithAlphaSel = sel_registerName("colorWithCalibratedRed:green:blue:alpha:");
                     IntPtr textColor = objc_msgSend_color(nsColorClass, colorWithAlphaSel, 0.0, 1.0, 0.35, 1.0);
                     if (textColor != IntPtr.Zero)
@@ -143,8 +140,8 @@ namespace Ryujinx.Headless.UI
                         objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setTextColor:"), textColor);
                     }
 
-                    // Bold Monospaced System Font (14pt)
-                    IntPtr boldFont = objc_msgSend_IntPtr(nsFontClass, sel_registerName("boldSystemFontOfSize:"), (IntPtr)14);
+                    // Bold Font (15pt)
+                    IntPtr boldFont = objc_msgSend_IntPtr(nsFontClass, sel_registerName("boldSystemFontOfSize:"), (IntPtr)15);
                     if (boldFont != IntPtr.Zero)
                     {
                         objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setFont:"), boldFont);
@@ -158,12 +155,12 @@ namespace Ryujinx.Headless.UI
                         CFRelease(initialStr);
                     }
 
-                    // Add directly on top of game's Metal layer
+                    // Add subview on top of Metal layer
                     objc_msgSend_void_IntPtr(mainContentView, sel_registerName("addSubview:"), _hudLabel);
                     objc_msgSend_void_bool(_hudLabel, sel_registerName("setHidden:"), !_isVisible);
 
                     _initialized = true;
-                    Logger.Info?.Print(LogClass.Application, "Direct In-Game OSD Subview initialized and attached.");
+                    Logger.Info?.Print(LogClass.Application, "Layer-backed In-Game OSD initialized on CAMetalLayer.");
                 }
                 catch (Exception ex)
                 {
