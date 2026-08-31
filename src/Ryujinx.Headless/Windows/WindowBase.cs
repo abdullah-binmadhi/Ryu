@@ -653,6 +653,7 @@ namespace Ryujinx.Headless
                     {
                         SDL_SetWindowTitle(WindowHandle, _baseWindowTitle);
                     }
+                    Logger.Info?.Print(LogClass.Application, $"In-Game OSD HUD toggled: {(_showOsd ? "Enabled" : "Disabled")}");
                 }
                 _lastF7KeyDown = f7Pressed;
 
