@@ -33,6 +33,9 @@ namespace Ryujinx.Headless.UI
         private static partial void objc_msgSend_void_long(IntPtr receiver, IntPtr selector, long arg1);
 
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
+        private static partial void objc_msgSend_addChildWindow(IntPtr receiver, IntPtr selector, IntPtr childWindow, long ordered);
+
+        [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
         private static partial IntPtr objc_msgSend_initWindow(IntPtr receiver, IntPtr selector, double x, double y, double w, double h, long styleMask, long backing, [MarshalAs(UnmanagedType.Bool)] bool defer);
 
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
@@ -53,6 +56,7 @@ namespace Ryujinx.Headless.UI
         private static IntPtr _hudLabel = IntPtr.Zero;
         private static bool _isVisible = true;
         private static bool _initialized = false;
+        private static bool _attachedToParent = false;
         private static readonly object _lock = new();
 
         public static bool IsVisible
@@ -92,9 +96,10 @@ namespace Ryujinx.Headless.UI
                 try
                 {
                     IntPtr nsAppClass = objc_getClass("NSApplication");
+                    IntPtr nsApp = IntPtr.Zero;
                     if (nsAppClass != IntPtr.Zero)
                     {
-                        objc_msgSend(nsAppClass, sel_registerName("sharedApplication"));
+                        nsApp = objc_msgSend(nsAppClass, sel_registerName("sharedApplication"));
                     }
 
                     IntPtr nsPanelClass = objc_getClass("NSPanel");
@@ -106,22 +111,6 @@ namespace Ryujinx.Headless.UI
                     IntPtr allocSel = sel_registerName("alloc");
                     IntPtr initSel = sel_registerName("initWithContentRect:styleMask:backing:defer:");
                     IntPtr panelAlloc = objc_msgSend(nsPanelClass, allocSel);
-
-                    // Position in top-left of main screen
-                    double screenH = 900;
-                    try
-                    {
-                        IntPtr nsScreenClass = objc_getClass("NSScreen");
-                        IntPtr mainScreen = objc_msgSend(nsScreenClass, sel_registerName("mainScreen"));
-                        if (mainScreen != IntPtr.Zero)
-                        {
-                            // Default frame approximation on MacBook Air
-                            screenH = 900;
-                        }
-                    }
-                    catch
-                    {
-                    }
 
                     // Top-left HUD panel: x: 24, y: 720 (top of viewport), w: 500, h: 36
                     // styleMask: 0 (Borderless)
@@ -190,6 +179,8 @@ namespace Ryujinx.Headless.UI
                         objc_msgSend_void_IntPtr(contentView, sel_registerName("addSubview:"), _hudLabel);
                     }
 
+                    TryAttachToGameWindow();
+
                     if (_isVisible)
                     {
                         objc_msgSend(_hudPanel, sel_registerName("orderFrontRegardless"));
@@ -202,6 +193,36 @@ namespace Ryujinx.Headless.UI
                 {
                     Logger.Warning?.Print(LogClass.Application, $"Failed to initialize In-Game OSD: {ex.Message}");
                 }
+            }
+        }
+
+        private static void TryAttachToGameWindow()
+        {
+            if (_hudPanel == IntPtr.Zero) return;
+
+            try
+            {
+                IntPtr nsApp = objc_msgSend(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
+                if (nsApp == IntPtr.Zero) return;
+
+                IntPtr windows = objc_msgSend(nsApp, sel_registerName("windows"));
+                if (windows == IntPtr.Zero) return;
+
+                IntPtr count = objc_msgSend(windows, sel_registerName("count"));
+                for (int i = 0; i < (long)count; i++)
+                {
+                    IntPtr win = objc_msgSend_IntPtr(windows, sel_registerName("objectAtIndex:"), (IntPtr)i);
+                    if (win != IntPtr.Zero && win != _hudPanel)
+                    {
+                        // NSWindowAbove = 1
+                        objc_msgSend_addChildWindow(win, sel_registerName("addChildWindow:ordered:"), _hudPanel, 1);
+                        _attachedToParent = true;
+                        break;
+                    }
+                }
+            }
+            catch
+            {
             }
         }
 
@@ -220,6 +241,11 @@ namespace Ryujinx.Headless.UI
             if (_hudPanel == IntPtr.Zero)
             {
                 return;
+            }
+
+            if (!_attachedToParent)
+            {
+                TryAttachToGameWindow();
             }
 
             if (!_isVisible)
