@@ -24,6 +24,11 @@ namespace Ryujinx.Graphics.Vulkan
             set => Internal.Id0 = (Internal.Id0 & 0xFFFFFFFF) | ((ulong)(uint)BitConverter.SingleToInt32Bits(value) << 32);
         }
 
+        public void SetBlendEnable(int index, bool enable)
+        {
+            Internal.ColorBlendAttachmentState[index].BlendEnable = enable;
+        }
+
         public float DepthBiasConstantFactor
         {
             readonly get => BitConverter.Int32BitsToSingle((int)((Internal.Id1 >> 0) & 0xFFFFFFFF));
@@ -389,6 +394,22 @@ namespace Ryujinx.Graphics.Vulkan
             if (program.TryGetGraphicsPipeline(ref Internal, out Auto<DisposablePipeline> pipeline))
             {
                 return pipeline;
+            }
+
+            // Zero-Stutter Asynchronous Fallback for macOS Apple Silicon
+            if (gd.IsMoltenVk && !throwOnError && program.TryGetAnyGraphicsPipeline(out Auto<DisposablePipeline> fallbackPipeline))
+            {
+                PipelineState stateCopy = this;
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try
+                    {
+                        stateCopy.CreateGraphicsPipeline(gd, device, program, cache, renderPass, throwOnError: false);
+                    }
+                    catch { }
+                });
+
+                return fallbackPipeline;
             }
 
             Pipeline pipelineHandle = default;

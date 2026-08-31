@@ -63,6 +63,20 @@ namespace Ryujinx.Graphics.Vulkan
             }
         }
 
+        public bool TryGetFirst(out TValue value)
+        {
+            foreach (Bucket bucket in _hashTable)
+            {
+                if (bucket.Length > 0)
+                {
+                    value = bucket.Entries[0].Value;
+                    return true;
+                }
+            }
+            value = default;
+            return false;
+        }
+
         public void Add(ref TKey key, TValue value)
         {
             Entry entry = new()
