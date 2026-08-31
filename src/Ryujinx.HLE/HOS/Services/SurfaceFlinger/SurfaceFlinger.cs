@@ -352,27 +352,17 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
                     long diff = _ticksPerFrame - (_ticks + PerformanceCounter.ElapsedTicks - ticks);
                     if (diff > 0)
                     {
-                        if (OperatingSystem.IsMacOS() && _displayLinkSync != null && _displayLinkSync.IsRunning)
+                        PreciseSleepHelper.SleepUntilTimePoint(_event, PerformanceCounter.ElapsedTicks + diff);
+
+                        diff = _ticksPerFrame - (_ticks + PerformanceCounter.ElapsedTicks - ticks);
+
+                        if (diff < _spinTicks)
                         {
-                            // Hardware-synchronized Darwin CVDisplayLink ProMotion 120Hz pacing (0% CPU spin-wait)
-                            int targetFps = _swapInterval == 0 ? 60 : (_swapInterval == 1 ? 60 : 30);
-                            int cadence = _displayLinkSync.GetCadenceDivisor(targetFps);
-                            _displayLinkSync.WaitForVsyncCadence(cadence, (int)Math.Max(1, diff / _1msTicks));
+                            PreciseSleepHelper.SpinWaitUntilTimePoint(PerformanceCounter.ElapsedTicks + diff);
                         }
                         else
                         {
-                            PreciseSleepHelper.SleepUntilTimePoint(_event, PerformanceCounter.ElapsedTicks + diff);
-
-                            diff = _ticksPerFrame - (_ticks + PerformanceCounter.ElapsedTicks - ticks);
-
-                            if (diff < _spinTicks)
-                            {
-                                PreciseSleepHelper.SpinWaitUntilTimePoint(PerformanceCounter.ElapsedTicks + diff);
-                            }
-                            else
-                            {
-                                _event.WaitOne((int)(diff / _1msTicks));
-                            }
+                            _event.WaitOne((int)(diff / _1msTicks));
                         }
                     }
                 }

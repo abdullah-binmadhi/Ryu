@@ -227,14 +227,36 @@ namespace Ryujinx.SDL3.Common
 
             while (_isRunning)
             {
-                MainThreadDispatcher?.Invoke(() =>
+                if (MainThreadDispatcher != null)
+                {
+                    try
+                    {
+                        MainThreadDispatcher(() =>
+                        {
+                            SDL_Event evnt = new();
+                            while (SDL_PollEvent(&evnt))
+                            {
+                                HandleSDLEvent(ref evnt);
+                            }
+                        });
+                    }
+                    catch
+                    {
+                        SDL_Event evnt = new();
+                        while (SDL_PollEvent(&evnt))
+                        {
+                            HandleSDLEvent(ref evnt);
+                        }
+                    }
+                }
+                else
                 {
                     SDL_Event evnt = new();
                     while (SDL_PollEvent(&evnt))
                     {
                         HandleSDLEvent(ref evnt);
                     }
-                });
+                }
 
                 waitHandle.Wait(WaitTimeMs);
             }
