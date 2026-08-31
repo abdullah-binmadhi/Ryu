@@ -34,10 +34,17 @@ namespace Ryujinx.Headless
             PrintSplash();
             PrintSystemInfo();
 
+            if (args.Length == 1 && (args[0] == "--test" || args[0] == "-t" || args[0] == "--diagnostics"))
+            {
+                Diagnostics.SystemDiagnostics.RunAllDiagnostics();
+                return;
+            }
+
             if (args.Length == 0)
             {
                 Console.WriteLine("\u001b[1;33mUsage:\u001b[0m Ryu [game_path] [options]");
-                Console.WriteLine("Try 'Ryu --help' for all available options.\n");
+                Console.WriteLine("Try 'Ryu --help' for all available options.");
+                Console.WriteLine("Try 'Ryu --test' to verify all hardware and graphics subsystems.\n");
                 return;
             }
 

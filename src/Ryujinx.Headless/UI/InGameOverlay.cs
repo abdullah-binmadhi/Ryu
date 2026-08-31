@@ -33,12 +33,6 @@ namespace Ryujinx.Headless.UI
         private static partial void objc_msgSend_void_long(IntPtr receiver, IntPtr selector, long arg1);
 
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
-        private static partial void objc_msgSend_addChildWindow(IntPtr receiver, IntPtr selector, IntPtr childWindow, long ordered);
-
-        [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
-        private static partial IntPtr objc_msgSend_initWindow(IntPtr receiver, IntPtr selector, double x, double y, double w, double h, long styleMask, long backing, [MarshalAs(UnmanagedType.Bool)] bool defer);
-
-        [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
         private static partial void objc_msgSend_setFrame(IntPtr receiver, IntPtr selector, double x, double y, double w, double h);
 
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
@@ -52,11 +46,10 @@ namespace Ryujinx.Headless.UI
 
         private const uint kCFStringEncodingUTF8 = 0x08000100;
 
-        private static IntPtr _hudPanel = IntPtr.Zero;
+        private static IntPtr _targetWindow = IntPtr.Zero;
         private static IntPtr _hudLabel = IntPtr.Zero;
         private static bool _isVisible = true;
         private static bool _initialized = false;
-        private static bool _attachedToParent = false;
         private static readonly object _lock = new();
 
         public static bool IsVisible
@@ -65,16 +58,9 @@ namespace Ryujinx.Headless.UI
             set
             {
                 _isVisible = value;
-                if (_hudPanel != IntPtr.Zero)
+                if (_hudLabel != IntPtr.Zero)
                 {
-                    if (_isVisible)
-                    {
-                        objc_msgSend(_hudPanel, sel_registerName("orderFrontRegardless"));
-                    }
-                    else
-                    {
-                        objc_msgSend_void_IntPtr(_hudPanel, sel_registerName("orderOut:"), IntPtr.Zero);
-                    }
+                    objc_msgSend_void_bool(_hudLabel, sel_registerName("setHidden:"), !_isVisible);
                 }
             }
         }
@@ -88,7 +74,7 @@ namespace Ryujinx.Headless.UI
 
             lock (_lock)
             {
-                if (_initialized && _hudPanel != IntPtr.Zero)
+                if (_initialized && _hudLabel != IntPtr.Zero)
                 {
                     return;
                 }
@@ -96,54 +82,26 @@ namespace Ryujinx.Headless.UI
                 try
                 {
                     IntPtr nsAppClass = objc_getClass("NSApplication");
-                    IntPtr nsApp = IntPtr.Zero;
-                    if (nsAppClass != IntPtr.Zero)
-                    {
-                        nsApp = objc_msgSend(nsAppClass, sel_registerName("sharedApplication"));
-                    }
+                    if (nsAppClass == IntPtr.Zero) return;
 
-                    IntPtr nsPanelClass = objc_getClass("NSPanel");
-                    if (nsPanelClass == IntPtr.Zero)
-                    {
-                        nsPanelClass = objc_getClass("NSWindow");
-                    }
+                    IntPtr nsApp = objc_msgSend(nsAppClass, sel_registerName("sharedApplication"));
+                    if (nsApp == IntPtr.Zero) return;
 
-                    IntPtr allocSel = sel_registerName("alloc");
-                    IntPtr initSel = sel_registerName("initWithContentRect:styleMask:backing:defer:");
-                    IntPtr panelAlloc = objc_msgSend(nsPanelClass, allocSel);
+                    IntPtr windows = objc_msgSend(nsApp, sel_registerName("windows"));
+                    if (windows == IntPtr.Zero) return;
 
-                    // Top-left HUD panel: x: 24, y: 720 (top of viewport), w: 500, h: 36
-                    // styleMask: 0 (Borderless)
-                    _hudPanel = objc_msgSend_initWindow(panelAlloc, initSel, 24, 720, 500, 36, 0, 2, false);
+                    IntPtr count = objc_msgSend(windows, sel_registerName("count"));
+                    if ((long)count == 0) return;
 
-                    if (_hudPanel == IntPtr.Zero)
-                    {
-                        Logger.Warning?.Print(LogClass.Application, "Could not initialize native OSD panel.");
-                        return;
-                    }
+                    _targetWindow = objc_msgSend_IntPtr(windows, sel_registerName("objectAtIndex:"), IntPtr.Zero);
+                    if (_targetWindow == IntPtr.Zero) return;
 
-                    // Pure transparent window - NO background bar
-                    objc_msgSend_void_bool(_hudPanel, sel_registerName("setOpaque:"), false);
-                    objc_msgSend_void_bool(_hudPanel, sel_registerName("setHasShadow:"), false);
-                    objc_msgSend_void_bool(_hudPanel, sel_registerName("setIgnoresMouseEvents:"), true);
-                    objc_msgSend_void_bool(_hudPanel, sel_registerName("setHidesOnDeactivate:"), false);
+                    IntPtr contentView = objc_msgSend(_targetWindow, sel_registerName("contentView"));
+                    if (contentView == IntPtr.Zero) return;
 
-                    // Maximum Window Level (1000 = kCGScreenSaverWindowLevel / overlay above all spaces)
-                    objc_msgSend_void_long(_hudPanel, sel_registerName("setLevel:"), 1000);
-
-                    // FullScreenAuxiliary (256) | CanJoinAllSpaces (1) | Stationary (16) | IgnoresCycle (64) = 337
-                    objc_msgSend_void_long(_hudPanel, sel_registerName("setCollectionBehavior:"), 337);
-
-                    // Transparent background
-                    IntPtr nsColorClass = objc_getClass("NSColor");
-                    IntPtr clearColor = objc_msgSend(nsColorClass, sel_registerName("clearColor"));
-                    objc_msgSend_void_IntPtr(_hudPanel, sel_registerName("setBackgroundColor:"), clearColor);
-
-                    IntPtr contentView = objc_msgSend(_hudPanel, sel_registerName("contentView"));
-
-                    // Create NSTextField via labelWithString
                     IntPtr nsTextFieldClass = objc_getClass("NSTextField");
                     IntPtr nsFontClass = objc_getClass("NSFont");
+                    IntPtr nsColorClass = objc_getClass("NSColor");
 
                     IntPtr initialStr = CFStringCreateWithCString(IntPtr.Zero, "FPS: 60.0  (16.6ms)  |  1% Low: 58.5", kCFStringEncodingUTF8);
                     _hudLabel = objc_msgSend_IntPtr(nsTextFieldClass, sel_registerName("labelWithString:"), initialStr);
@@ -154,9 +112,12 @@ namespace Ryujinx.Headless.UI
 
                     if (_hudLabel != IntPtr.Zero)
                     {
-                        objc_msgSend_setFrame(_hudLabel, sel_registerName("setFrame:"), 0, 0, 500, 36);
+                        // Position in top-left of content view
+                        // In macOS Cocoa: y: 0 is bottom. Autoresizing mask 8 = NSViewMinYMargin (sticks to top)
+                        objc_msgSend_setFrame(_hudLabel, sel_registerName("setFrame:"), 18, 18, 550, 28);
+                        objc_msgSend_void_long(_hudLabel, sel_registerName("setAutoresizingMask:"), 8 | 1); // Sticks to top & left
 
-                        // Bright Lime Green (#00FF59)
+                        // Lime Green (#00FF59)
                         IntPtr colorWithAlphaSel = sel_registerName("colorWithCalibratedRed:green:blue:alpha:");
                         IntPtr textColor = objc_msgSend_color(nsColorClass, colorWithAlphaSel, 0.0, 1.0, 0.35, 1.0);
                         if (textColor != IntPtr.Zero)
@@ -164,65 +125,30 @@ namespace Ryujinx.Headless.UI
                             objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setTextColor:"), textColor);
                         }
 
-                        // Bold Font (15pt)
-                        IntPtr boldFont = objc_msgSend_IntPtr(nsFontClass, sel_registerName("boldSystemFontOfSize:"), (IntPtr)15);
+                        // Bold Font (14pt)
+                        IntPtr boldFont = objc_msgSend_IntPtr(nsFontClass, sel_registerName("boldSystemFontOfSize:"), (IntPtr)14);
                         if (boldFont != IntPtr.Zero)
                         {
                             objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setFont:"), boldFont);
                         }
 
-                        // Transparent label background
+                        // Transparent & non-interactive
                         objc_msgSend_void_bool(_hudLabel, sel_registerName("setDrawsBackground:"), false);
                         objc_msgSend_void_bool(_hudLabel, sel_registerName("setBezeled:"), false);
                         objc_msgSend_void_bool(_hudLabel, sel_registerName("setSelectable:"), false);
+                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setHidden:"), !_isVisible);
 
+                        // Add directly into game window content view
                         objc_msgSend_void_IntPtr(contentView, sel_registerName("addSubview:"), _hudLabel);
                     }
 
-                    TryAttachToGameWindow();
-
-                    if (_isVisible)
-                    {
-                        objc_msgSend(_hudPanel, sel_registerName("orderFrontRegardless"));
-                    }
-
                     _initialized = true;
-                    Logger.Info?.Print(LogClass.Application, "Native In-Game OSD HUD Overlay initialized successfully.");
+                    Logger.Info?.Print(LogClass.Application, "Native In-Game OSD HUD Overlay attached to game window view.");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning?.Print(LogClass.Application, $"Failed to initialize In-Game OSD: {ex.Message}");
+                    Logger.Warning?.Print(LogClass.Application, $"In-Game OSD init notice: {ex.Message}");
                 }
-            }
-        }
-
-        private static void TryAttachToGameWindow()
-        {
-            if (_hudPanel == IntPtr.Zero) return;
-
-            try
-            {
-                IntPtr nsApp = objc_msgSend(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
-                if (nsApp == IntPtr.Zero) return;
-
-                IntPtr windows = objc_msgSend(nsApp, sel_registerName("windows"));
-                if (windows == IntPtr.Zero) return;
-
-                IntPtr count = objc_msgSend(windows, sel_registerName("count"));
-                for (int i = 0; i < (long)count; i++)
-                {
-                    IntPtr win = objc_msgSend_IntPtr(windows, sel_registerName("objectAtIndex:"), (IntPtr)i);
-                    if (win != IntPtr.Zero && win != _hudPanel)
-                    {
-                        // NSWindowAbove = 1
-                        objc_msgSend_addChildWindow(win, sel_registerName("addChildWindow:ordered:"), _hudPanel, 1);
-                        _attachedToParent = true;
-                        break;
-                    }
-                }
-            }
-            catch
-            {
             }
         }
 
@@ -233,42 +159,34 @@ namespace Ryujinx.Headless.UI
                 return;
             }
 
-            if (!_initialized)
+            if (!_initialized || _hudLabel == IntPtr.Zero)
             {
                 Initialize();
             }
 
-            if (_hudPanel == IntPtr.Zero)
+            if (_hudLabel == IntPtr.Zero)
             {
                 return;
             }
 
-            if (!_attachedToParent)
-            {
-                TryAttachToGameWindow();
-            }
-
             if (!_isVisible)
             {
-                objc_msgSend_void_IntPtr(_hudPanel, sel_registerName("orderOut:"), IntPtr.Zero);
+                objc_msgSend_void_bool(_hudLabel, sel_registerName("setHidden:"), true);
                 return;
             }
 
             try
             {
-                string text = $"FPS: {fps,5:F1}  ({frameTimeMs,4:F1}ms)  |  1% Low: {onePercentLow,4:F1}";
+                string text = $"FPS: {fps,5:F1} ({frameTimeMs,4:F1}ms)  |  1% Low: {onePercentLow,4:F1}";
 
                 IntPtr cfString = CFStringCreateWithCString(IntPtr.Zero, text, kCFStringEncodingUTF8);
                 if (cfString != IntPtr.Zero)
                 {
-                    if (_hudLabel != IntPtr.Zero)
-                    {
-                        objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setStringValue:"), cfString);
-                    }
+                    objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setStringValue:"), cfString);
                     CFRelease(cfString);
                 }
 
-                objc_msgSend(_hudPanel, sel_registerName("orderFrontRegardless"));
+                objc_msgSend_void_bool(_hudLabel, sel_registerName("setHidden:"), false);
             }
             catch
             {
