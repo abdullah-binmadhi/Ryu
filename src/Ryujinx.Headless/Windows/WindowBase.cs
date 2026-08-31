@@ -23,6 +23,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using SDL;
 using static SDL.SDL3;
@@ -210,6 +211,18 @@ namespace Ryujinx.Headless
             TerminalHud.Start(titleNameSection.TrimStart('-', ' '));
         }
 
+        [LibraryImport("/usr/lib/libobjc.A.dylib", StringMarshalling = StringMarshalling.Utf8)]
+        private static partial IntPtr sel_registerName(string name);
+
+        [LibraryImport("/usr/lib/libobjc.A.dylib", StringMarshalling = StringMarshalling.Utf8)]
+        private static partial IntPtr objc_getClass(string name);
+
+        [LibraryImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")]
+        private static partial IntPtr objc_msgSend(IntPtr receiver, IntPtr selector);
+
+        [LibraryImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")]
+        private static partial void objc_msgSend_void_IntPtr(IntPtr receiver, IntPtr selector, IntPtr arg1);
+
         private long _lastFullscreenToggleTimestamp;
 
         public void ToggleFullscreen()
@@ -228,6 +241,25 @@ namespace Ryujinx.Headless
 
             bool targetFullscreen = !IsFullscreen;
             IsFullscreen = targetFullscreen;
+
+            if (OperatingSystem.IsMacOS())
+            {
+                try
+                {
+                    IntPtr nsApp = objc_msgSend(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
+                    IntPtr keyWindow = objc_msgSend(nsApp, sel_registerName("keyWindow"));
+                    if (keyWindow == IntPtr.Zero) keyWindow = objc_msgSend(nsApp, sel_registerName("mainWindow"));
+                    if (keyWindow != IntPtr.Zero)
+                    {
+                        objc_msgSend_void_IntPtr(keyWindow, sel_registerName("toggleFullScreen:"), IntPtr.Zero);
+                        Logger.Info?.Print(LogClass.Application, $"Native macOS Fullscreen toggled: {(targetFullscreen ? "Enabled" : "Disabled")}");
+                        return;
+                    }
+                }
+                catch
+                {
+                }
+            }
 
             SDL_SetWindowFullscreen(WindowHandle, targetFullscreen);
             Logger.Info?.Print(LogClass.Application, $"Fullscreen mode toggled: {(targetFullscreen ? "Enabled" : "Disabled")}");

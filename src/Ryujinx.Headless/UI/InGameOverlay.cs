@@ -9,6 +9,7 @@ namespace Ryujinx.Headless.UI
     public static partial class InGameOverlay
     {
         private const string ObjCRuntime = "/usr/lib/libobjc.A.dylib";
+        private const string CoreFoundationLib = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 
         [LibraryImport(ObjCRuntime, StringMarshalling = StringMarshalling.Utf8)]
         private static partial IntPtr sel_registerName(string name);
@@ -31,9 +32,6 @@ namespace Ryujinx.Headless.UI
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
         private static partial void objc_msgSend_void_long(IntPtr receiver, IntPtr selector, long arg1);
 
-        [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend", StringMarshalling = StringMarshalling.Utf8)]
-        private static partial IntPtr objc_msgSend_IntPtr_string(IntPtr receiver, IntPtr selector, string arg1);
-
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
         private static partial IntPtr objc_msgSend_initWindow(IntPtr receiver, IntPtr selector, double x, double y, double w, double h, long styleMask, long backing, [MarshalAs(UnmanagedType.Bool)] bool defer);
 
@@ -41,10 +39,15 @@ namespace Ryujinx.Headless.UI
         private static partial IntPtr objc_msgSend_initView(IntPtr receiver, IntPtr selector, double x, double y, double w, double h);
 
         [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
-        private static partial void objc_msgSend_setFrame(IntPtr receiver, IntPtr selector, double x, double y, double w, double h, [MarshalAs(UnmanagedType.Bool)] bool display);
-
-        [LibraryImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
         private static partial IntPtr objc_msgSend_color(IntPtr receiver, IntPtr selector, double r, double g, double b, double a);
+
+        [LibraryImport(CoreFoundationLib, StringMarshalling = StringMarshalling.Utf8)]
+        private static partial IntPtr CFStringCreateWithCString(IntPtr alloc, string str, uint encoding);
+
+        [LibraryImport(CoreFoundationLib)]
+        private static partial void CFRelease(IntPtr cf);
+
+        private const uint kCFStringEncodingUTF8 = 0x08000100;
 
         private static IntPtr _hudPanel = IntPtr.Zero;
         private static IntPtr _hudLabel = IntPtr.Zero;
@@ -100,8 +103,8 @@ namespace Ryujinx.Headless.UI
                     IntPtr initSel = sel_registerName("initWithContentRect:styleMask:backing:defer:");
                     IntPtr panelAlloc = objc_msgSend(nsPanelClass, allocSel);
 
-                    // Position initially in top-right area (x: 800, y: 700, w: 320, h: 36)
-                    _hudPanel = objc_msgSend_initWindow(panelAlloc, initSel, 100, 700, 320, 36, 0, 2, false);
+                    // Position in top-left with generous width: 400x32 pt
+                    _hudPanel = objc_msgSend_initWindow(panelAlloc, initSel, 20, 720, 420, 32, 0, 2, false);
 
                     if (_hudPanel == IntPtr.Zero)
                     {
@@ -109,58 +112,62 @@ namespace Ryujinx.Headless.UI
                         return;
                     }
 
-                    // Window properties: borderless, transparent, floating
+                    // Window properties: 100% transparent, floating, non-interactive
                     objc_msgSend_void_bool(_hudPanel, sel_registerName("setOpaque:"), false);
-                    objc_msgSend_void_bool(_hudPanel, sel_registerName("setHasShadow:"), true);
+                    objc_msgSend_void_bool(_hudPanel, sel_registerName("setHasShadow:"), false);
                     objc_msgSend_void_bool(_hudPanel, sel_registerName("setIgnoresMouseEvents:"), true);
 
-                    // Level 25 = kCGOverlayWindowLevelKey / Status level (floats above all fullscreen spaces)
+                    // Level 25 = Status / Overlay (floats above fullscreen games)
                     objc_msgSend_void_long(_hudPanel, sel_registerName("setLevel:"), 25);
 
                     // Collection behavior: CanJoinAllSpaces (1) | FullScreenAuxiliary (256) | Stationary (16) = 273
                     objc_msgSend_void_long(_hudPanel, sel_registerName("setCollectionBehavior:"), 273);
 
-                    // Background color: transparent
+                    // Background color: 100% Clear (no box, no bar)
                     IntPtr nsColorClass = objc_getClass("NSColor");
                     IntPtr clearColor = objc_msgSend(nsColorClass, sel_registerName("clearColor"));
                     objc_msgSend_void_IntPtr(_hudPanel, sel_registerName("setBackgroundColor:"), clearColor);
 
                     IntPtr contentView = objc_msgSend(_hudPanel, sel_registerName("contentView"));
 
-                    // Create NSTextField for OSD text
+                    // Create NSTextField for pure text rendering
                     IntPtr nsTextFieldClass = objc_getClass("NSTextField");
                     IntPtr labelAlloc = objc_msgSend(nsTextFieldClass, allocSel);
-                    _hudLabel = objc_msgSend_initView(labelAlloc, sel_registerName("initWithFrame:"), 0, 0, 320, 36);
+                    _hudLabel = objc_msgSend_initView(labelAlloc, sel_registerName("initWithFrame:"), 0, 0, 420, 32);
 
                     if (_hudLabel != IntPtr.Zero)
                     {
                         objc_msgSend_void_bool(_hudLabel, sel_registerName("setBezeled:"), false);
-                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setDrawsBackground:"), true);
+                        objc_msgSend_void_bool(_hudLabel, sel_registerName("setDrawsBackground:"), false);
                         objc_msgSend_void_bool(_hudLabel, sel_registerName("setEditable:"), false);
                         objc_msgSend_void_bool(_hudLabel, sel_registerName("setSelectable:"), false);
 
-                        // Dark translucent background color for pill
+                        // Clear background on label
+                        objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setBackgroundColor:"), clearColor);
+
+                        // Text Color: Crisp Lime Green (#00FF66) with full contrast
                         IntPtr colorWithAlphaSel = sel_registerName("colorWithCalibratedRed:green:blue:alpha:");
-                        IntPtr pillBgColor = objc_msgSend_color(nsColorClass, colorWithAlphaSel, 0.05, 0.05, 0.05, 0.85);
-                        if (pillBgColor != IntPtr.Zero)
+                        IntPtr textColor = objc_msgSend_color(nsColorClass, colorWithAlphaSel, 0.0, 1.0, 0.35, 1.0);
+                        if (textColor != IntPtr.Zero)
                         {
-                            objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setBackgroundColor:"), pillBgColor);
+                            objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setTextColor:"), textColor);
                         }
 
-                        // Text Color: bright white
-                        IntPtr whiteColor = objc_msgSend(nsColorClass, sel_registerName("whiteColor"));
-                        objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setTextColor:"), whiteColor);
-
-                        // Bold system font
+                        // Bold Font (14pt)
                         IntPtr nsFontClass = objc_getClass("NSFont");
-                        IntPtr boldFont = objc_msgSend_IntPtr(nsFontClass, sel_registerName("boldSystemFontOfSize:"), (IntPtr)12);
+                        IntPtr boldFont = objc_msgSend_IntPtr(nsFontClass, sel_registerName("boldSystemFontOfSize:"), (IntPtr)14);
                         if (boldFont != IntPtr.Zero)
                         {
                             objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setFont:"), boldFont);
                         }
 
-                        // Alignment: Center (1)
-                        objc_msgSend_void_long(_hudLabel, sel_registerName("setAlignment:"), 1);
+                        // Initial Text
+                        IntPtr initialStr = CFStringCreateWithCString(IntPtr.Zero, "FPS: --.- (0.0ms)", kCFStringEncodingUTF8);
+                        if (initialStr != IntPtr.Zero)
+                        {
+                            objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setStringValue:"), initialStr);
+                            CFRelease(initialStr);
+                        }
 
                         // Add to contentView
                         objc_msgSend_void_IntPtr(contentView, sel_registerName("addSubview:"), _hudLabel);
@@ -172,7 +179,7 @@ namespace Ryujinx.Headless.UI
                     }
 
                     _initialized = true;
-                    Logger.Info?.Print(LogClass.Application, "Native In-Game OSD HUD Overlay initialized successfully.");
+                    Logger.Info?.Print(LogClass.Application, "Seamless In-Game OSD initialized.");
                 }
                 catch (Exception ex)
                 {
@@ -190,15 +197,16 @@ namespace Ryujinx.Headless.UI
 
             try
             {
-                string text = $"FPS: {fps,5:F1} ({frameTimeMs,4:F1}ms) | 1% Low: {onePercentLow,4:F1} | {filterStr}";
+                string text = $"FPS: {fps,5:F1}  ({frameTimeMs,4:F1}ms)  |  1% Low: {onePercentLow,4:F1}";
 
-                IntPtr nsStringClass = objc_getClass("NSString");
-                IntPtr stringSel = sel_registerName("stringWithUTF8String:");
-                IntPtr nsStr = objc_msgSend_IntPtr_string(nsStringClass, stringSel, text);
-
-                if (nsStr != IntPtr.Zero && _hudLabel != IntPtr.Zero)
+                IntPtr cfString = CFStringCreateWithCString(IntPtr.Zero, text, kCFStringEncodingUTF8);
+                if (cfString != IntPtr.Zero)
                 {
-                    objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setStringValue:"), nsStr);
+                    if (_hudLabel != IntPtr.Zero)
+                    {
+                        objc_msgSend_void_IntPtr(_hudLabel, sel_registerName("setStringValue:"), cfString);
+                    }
+                    CFRelease(cfString);
                 }
 
                 objc_msgSend(_hudPanel, sel_registerName("orderFrontRegardless"));
