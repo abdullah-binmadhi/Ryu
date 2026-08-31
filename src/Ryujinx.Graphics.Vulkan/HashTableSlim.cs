@@ -11,7 +11,7 @@ namespace Ryujinx.Graphics.Vulkan
 
     class HashTableSlim<TKey, TValue> where TKey : IRefEquatable<TKey>
     {
-        private const int TotalBuckets = 16; // Must be power of 2
+        private const int TotalBuckets = 256; // Must be power of 2
         private const int TotalBucketsMask = TotalBuckets - 1;
 
         private struct Entry

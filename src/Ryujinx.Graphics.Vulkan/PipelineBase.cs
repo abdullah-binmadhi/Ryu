@@ -104,12 +104,47 @@ namespace Ryujinx.Graphics.Vulkan
             AutoFlush = new AutoFlushCounter(gd);
             EndRenderPassDelegate = EndRenderPass;
 
+            byte[] initialCacheData = null;
+            try
+            {
+                string cacheDir = System.IO.Path.Combine(Ryujinx.Common.Configuration.AppDataManager.BaseDirPath ?? ".", "cache", "vulkan");
+                System.IO.Directory.CreateDirectory(cacheDir);
+                string cacheFile = System.IO.Path.Combine(cacheDir, "pipeline_cache.bin");
+                if (System.IO.File.Exists(cacheFile))
+                {
+                    initialCacheData = System.IO.File.ReadAllBytes(cacheFile);
+                }
+            }
+            catch { }
+
             PipelineCacheCreateInfo pipelineCacheCreateInfo = new()
             {
                 SType = StructureType.PipelineCacheCreateInfo,
             };
 
-            gd.Api.CreatePipelineCache(device, in pipelineCacheCreateInfo, null, out PipelineCache).ThrowOnError();
+            unsafe
+            {
+                if (initialCacheData != null && initialCacheData.Length > 0)
+                {
+                    fixed (byte* pInitialData = initialCacheData)
+                    {
+                        pipelineCacheCreateInfo.InitialDataSize = (nuint)initialCacheData.Length;
+                        pipelineCacheCreateInfo.PInitialData = pInitialData;
+
+                        Result res = gd.Api.CreatePipelineCache(device, in pipelineCacheCreateInfo, null, out PipelineCache);
+                        if (res != Result.Success)
+                        {
+                            pipelineCacheCreateInfo.InitialDataSize = 0;
+                            pipelineCacheCreateInfo.PInitialData = null;
+                            gd.Api.CreatePipelineCache(device, in pipelineCacheCreateInfo, null, out PipelineCache).ThrowOnError();
+                        }
+                    }
+                }
+                else
+                {
+                    gd.Api.CreatePipelineCache(device, in pipelineCacheCreateInfo, null, out PipelineCache).ThrowOnError();
+                }
+            }
 
             _descriptorSetUpdater = new DescriptorSetUpdater(gd, device);
             _vertexBufferUpdater = new VertexBufferUpdater(gd);
@@ -1814,6 +1849,26 @@ namespace Ryujinx.Graphics.Vulkan
 
                 unsafe
                 {
+                    try
+                    {
+                        nuint dataSize = 0;
+                        if (Gd.Api.GetPipelineCacheData(Device, PipelineCache, &dataSize, null) == Result.Success && dataSize > 0)
+                        {
+                            byte[] cacheBytes = new byte[dataSize];
+                            fixed (byte* pData = cacheBytes)
+                            {
+                                if (Gd.Api.GetPipelineCacheData(Device, PipelineCache, &dataSize, pData) == Result.Success)
+                                {
+                                    string cacheDir = System.IO.Path.Combine(Ryujinx.Common.Configuration.AppDataManager.BaseDirPath ?? ".", "cache", "vulkan");
+                                    System.IO.Directory.CreateDirectory(cacheDir);
+                                    string cacheFile = System.IO.Path.Combine(cacheDir, "pipeline_cache.bin");
+                                    System.IO.File.WriteAllBytes(cacheFile, cacheBytes);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+
                     Gd.Api.DestroyPipelineCache(Device, PipelineCache, null);
                 }
             }
