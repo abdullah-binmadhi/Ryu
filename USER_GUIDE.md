@@ -396,7 +396,7 @@ Ryu automatically detects and enables installed cheats and patches during startu
 | `--enable-mouse` | `Boolean` (`false`) | Routes pointer movement and mouse clicks to controller inputs. | `--enable-mouse` |
 | `--install-firmware` | `String` (`None`) | Unpacks and installs system firmware files into the internal partition. | `--install-firmware "fw.zip"` |
 | `--audio-backend` | `Enum` (`SDL3`) | Audio output driver backend (`SDL3`, `OpenAL`, `SoundIO`). | `--audio-backend SDL3` |
-| `--audio-volume` | `Float` (`1.0`) | Master audio attenuation scalar (Range: 0.0 to 1.0). | `--audio-volume 0.8` |
+| `--extract-shaders` | `String` / `Flag` | Extracts all Maxwell shaders from a ROM and pre-bakes Apple Metal cache. | `--extract-shaders "game.xci"` |
 | `--help` | `Flag` | Displays the complete parameter specification list. | `Ryu --help` |
 
 ---
