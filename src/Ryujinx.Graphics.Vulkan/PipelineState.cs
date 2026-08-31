@@ -396,22 +396,6 @@ namespace Ryujinx.Graphics.Vulkan
                 return pipeline;
             }
 
-            // Zero-Stutter Asynchronous Fallback for macOS Apple Silicon
-            if (gd.IsMoltenVk && !throwOnError && program.TryGetAnyGraphicsPipeline(out Auto<DisposablePipeline> fallbackPipeline))
-            {
-                PipelineState stateCopy = this;
-                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
-                {
-                    try
-                    {
-                        stateCopy.CreateGraphicsPipeline(gd, device, program, cache, renderPass, throwOnError: false);
-                    }
-                    catch { }
-                });
-
-                return fallbackPipeline;
-            }
-
             Pipeline pipelineHandle = default;
 
             bool isMoltenVk = gd.IsMoltenVk;

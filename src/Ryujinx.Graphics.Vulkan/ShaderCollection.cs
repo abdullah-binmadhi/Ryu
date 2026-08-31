@@ -575,40 +575,7 @@ namespace Ryujinx.Graphics.Vulkan
             pipeline.PipelineLayout = PipelineLayout;
 
             pipeline.CreateGraphicsPipeline(_gd, _device, this, (_gd.Pipeline as PipelineBase).PipelineCache, renderPass.Value, throwOnError: true);
-
-            // Speculative Permutation Matrix: Pre-compile Alpha Blending permutation for open-world foliage & transparents
-            if (_gd.IsMoltenVk)
-            {
-                try
-                {
-                    PipelineState blendPipeline = _state.ToVulkanPipelineState(_gd);
-                    Span<PipelineShaderStageCreateInfo> blendStages = blendPipeline.Stages.AsSpan();
-                    for (int i = 0; i < _shaders.Length; i++)
-                    {
-                        blendStages[i] = _shaders[i].GetInfo();
-                    }
-                    blendPipeline.HasTessellationControlShader = HasTessellationControlShader;
-                    blendPipeline.StagesCount = (uint)_shaders.Length;
-                    blendPipeline.PipelineLayout = PipelineLayout;
-                    blendPipeline.SetBlendEnable(0, true);
-                    blendPipeline.CreateGraphicsPipeline(_gd, _device, this, (_gd.Pipeline as PipelineBase).PipelineCache, renderPass.Value, throwOnError: false);
-                    blendPipeline.Dispose();
-                }
-                catch { }
-            }
-
             pipeline.Dispose();
-        }
-
-        public bool TryGetAnyGraphicsPipeline(out Auto<DisposablePipeline> pipeline)
-        {
-            if (_graphicsPipelineCache != null && _graphicsPipelineCache.TryGetFirst(out pipeline))
-            {
-                return true;
-            }
-
-            pipeline = default;
-            return false;
         }
 
         public ProgramLinkStatus CheckProgramLink(bool blocking)
