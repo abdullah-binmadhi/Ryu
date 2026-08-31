@@ -576,6 +576,48 @@ namespace Ryujinx.Graphics.Vulkan
 
             pipeline.CreateGraphicsPipeline(_gd, _device, this, (_gd.Pipeline as PipelineBase).PipelineCache, renderPass.Value, throwOnError: true);
             pipeline.Dispose();
+
+            // Speculative Permutations for Open-World Games on Apple Silicon
+            if (_gd.IsMoltenVk)
+            {
+                // Permutation 1: Alpha Cutout & Transparency (Foliage, Glass, Decals)
+                try
+                {
+                    PipelineState alphaPipeline = _state.ToVulkanPipelineState(_gd);
+                    Span<PipelineShaderStageCreateInfo> alphaStages = alphaPipeline.Stages.AsSpan();
+                    for (int i = 0; i < _shaders.Length; i++)
+                    {
+                        alphaStages[i] = _shaders[i].GetInfo();
+                    }
+                    alphaPipeline.HasTessellationControlShader = HasTessellationControlShader;
+                    alphaPipeline.StagesCount = (uint)_shaders.Length;
+                    alphaPipeline.PipelineLayout = PipelineLayout;
+                    alphaPipeline.SetBlendEnable(0, true);
+                    alphaPipeline.CreateGraphicsPipeline(_gd, _device, this, (_gd.Pipeline as PipelineBase).PipelineCache, renderPass.Value, throwOnError: false);
+                    alphaPipeline.Dispose();
+                }
+                catch { }
+
+                // Permutation 2: Directional Sunlight Depth Bias (Shadow Maps)
+                try
+                {
+                    PipelineState shadowPipeline = _state.ToVulkanPipelineState(_gd);
+                    Span<PipelineShaderStageCreateInfo> shadowStages = shadowPipeline.Stages.AsSpan();
+                    for (int i = 0; i < _shaders.Length; i++)
+                    {
+                        shadowStages[i] = _shaders[i].GetInfo();
+                    }
+                    shadowPipeline.HasTessellationControlShader = HasTessellationControlShader;
+                    shadowPipeline.StagesCount = (uint)_shaders.Length;
+                    shadowPipeline.PipelineLayout = PipelineLayout;
+                    shadowPipeline.DepthBiasEnable = true;
+                    shadowPipeline.DepthBiasConstantFactor = 1.25f;
+                    shadowPipeline.DepthBiasSlopeFactor = 1.75f;
+                    shadowPipeline.CreateGraphicsPipeline(_gd, _device, this, (_gd.Pipeline as PipelineBase).PipelineCache, renderPass.Value, throwOnError: false);
+                    shadowPipeline.Dispose();
+                }
+                catch { }
+            }
         }
 
         public ProgramLinkStatus CheckProgramLink(bool blocking)
