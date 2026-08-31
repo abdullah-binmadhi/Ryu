@@ -174,6 +174,11 @@ namespace Ryujinx.Headless
 
         private static IRenderer CreateRenderer(Options options, WindowBase window)
         {
+            if (OperatingSystem.IsMacOS() && options.GraphicsBackend == GraphicsBackend.Metal && window is MetalWindow)
+            {
+                return new Ryujinx.Graphics.Metal.MetalRenderer();
+            }
+
             if (options.GraphicsBackend == GraphicsBackend.Vulkan && window is VulkanWindow vulkanWindow)
             {
                 string preferredGpuId = string.Empty;

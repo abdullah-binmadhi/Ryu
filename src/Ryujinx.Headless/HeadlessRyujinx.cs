@@ -410,6 +410,11 @@ namespace Ryujinx.Headless
 
         private static WindowBase CreateWindow(Options options)
         {
+            if (OperatingSystem.IsMacOS() && options.GraphicsBackend == GraphicsBackend.Metal)
+            {
+                return new MetalWindow(_inputManager, options.LoggingGraphicsDebugLevel, options.AspectRatio, options.EnableMouse, options.HideCursorMode, options.IgnoreControllerApplet);
+            }
+
             return options.GraphicsBackend switch
             {
                 GraphicsBackend.Vulkan => new VulkanWindow(_inputManager, options.LoggingGraphicsDebugLevel, options.AspectRatio, options.EnableMouse, options.HideCursorMode, options.IgnoreControllerApplet),
