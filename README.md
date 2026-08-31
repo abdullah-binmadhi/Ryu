@@ -158,6 +158,30 @@ Provide the path to the game image (`.xci`, `.nsp`, `.nca`, or `.nro`):
   ```
   *(Note: On Windows, game files can also be dragged and dropped directly onto `Ryu.exe`.)*
 
+### Execution Configuration Profiles
+
+Ryu supports pre-configured execution profiles optimized for different hardware capabilities and performance targets:
+
+#### 1. Maximum Stability Profile (Heavy / 30 FPS Native Games & Zero Stutter)
+*Locks display cadence to a smooth 33.3ms interval, enables multithreaded backend driver queues, and eliminates GPU queue stalls.*
+* **macOS:** `./distribution/publish/osx-arm64/Ryu "Game.xci" --target-fps 30 --backend-threading on --scaling-filter Bilinear`
+* **Windows:** `.\distribution\publish\win-x64\Ryu.exe "Game.xci" --target-fps 30 --backend-threading on --scaling-filter Bilinear`
+
+#### 2. Maximum Quality Profile (Peak Visuals & 60 FPS)
+*Enables 1080p Docked rendering with AMD FidelityFX Super Resolution (FSR) edge sharpening.*
+* **macOS:** `./distribution/publish/osx-arm64/Ryu "Game.xci" --target-fps 60 --backend-threading on --scaling-filter Fsr --scaling-filter-level 80`
+* **Windows:** `.\distribution\publish\win-x64\Ryu.exe "Game.xci" --target-fps 60 --backend-threading on --scaling-filter Fsr --scaling-filter-level 80`
+
+#### 3. Balanced Profile (Optimal Thermals & Crisp Performance)
+*The standard daily-driver preset with low compute overhead and fluid 60 FPS pacing.*
+* **macOS:** `./distribution/publish/osx-arm64/Ryu "Game.xci" --target-fps 60 --scaling-filter Bilinear`
+* **Windows:** `.\distribution\publish\win-x64\Ryu.exe "Game.xci" --target-fps 60 --scaling-filter Bilinear`
+
+#### 4. Maximum Framerate / High-Refresh Profile (120Hz ProMotion & Handheld 720p)
+*Cuts GPU fill rate load in half, enables 120 FPS cadence division for ProMotion/VRR, and provides sub-millisecond input response.*
+* **macOS:** `./distribution/publish/osx-arm64/Ryu "Game.xci" --target-fps 120 --disable-docked-mode --backend-threading on --scaling-filter Nearest`
+* **Windows:** `.\distribution\publish\win-x64\Ryu.exe "Game.xci" --target-fps 120 --disable-docked-mode --backend-threading on --scaling-filter Nearest`
+
 ---
 
 ### Target Framerate and Presentation Cadence (30 / 60 / 120 FPS)

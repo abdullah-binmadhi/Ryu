@@ -25,10 +25,20 @@ namespace Ryujinx.Headless
             // Set terminal title
             Console.Title = $"Ryu Headless Engine v{Version}";
 
-            // Enable macOS Performance Stack (QoS P-Core Pinning, App Nap Lock, MoltenVK Prefill, Low-Latency GC)
+            // Enable Platform Performance Stack (QoS P-Core Pinning, App Nap Lock, MoltenVK Prefill, Low-Latency GC)
             if (OperatingSystem.IsMacOS())
             {
                 DarwinGameMode.InitializePerformanceStack();
+            }
+            else
+            {
+                try
+                {
+                    System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
+                }
+                catch
+                {
+                }
             }
 
             PrintSplash();

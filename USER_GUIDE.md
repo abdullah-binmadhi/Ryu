@@ -127,6 +127,90 @@ Pass the path of the game image (`.xci`, `.nsp`, `.nca`, or `.nro`):
 
 ---
 
+### Execution Configuration Profiles
+
+Ryu can be tailored for different performance targets and hardware profiles using pre-configured parameter presets:
+
+#### 1. Maximum Stability Profile (Heavy / 30 FPS Native Games & Zero Stutter)
+*Ideal for complex 3D titles (e.g. NieR:Automata, BOTW, TOTK) or native 30 FPS games. Prevents GPU queue bottlenecks and guarantees a flat 33.3ms frame cadence.*
+
+* **macOS:**
+  ```bash
+  ./distribution/publish/osx-arm64/Ryu "/path/to/Game.xci" \
+    --target-fps 30 \
+    --backend-threading on \
+    --scaling-filter Bilinear
+  ```
+* **Windows:**
+  ```powershell
+  .\distribution\publish\win-x64\Ryu.exe "C:\Games\Game.xci" `
+    --target-fps 30 `
+    --backend-threading on `
+    --scaling-filter Bilinear
+  ```
+
+#### 2. Maximum Quality Profile (Peak Visuals & 60 FPS)
+*Enables 1080p Docked rendering, multithreaded backend driver queues, and AMD FidelityFX Super Resolution (FSR) edge sharpening.*
+
+* **macOS:**
+  ```bash
+  ./distribution/publish/osx-arm64/Ryu "/path/to/Game.xci" \
+    --target-fps 60 \
+    --backend-threading on \
+    --scaling-filter Fsr \
+    --scaling-filter-level 80
+  ```
+* **Windows:**
+  ```powershell
+  .\distribution\publish\win-x64\Ryu.exe "C:\Games\Game.xci" `
+    --target-fps 60 `
+    --backend-threading on `
+    --scaling-filter Fsr `
+    --scaling-filter-level 80
+  ```
+
+#### 3. Balanced Profile (Optimal Thermals & Crisp Performance)
+*The daily-driver preset: runs in native 1080p Docked mode with low compute overhead and smooth 60 FPS frame pacing.*
+
+* **macOS:**
+  ```bash
+  ./distribution/publish/osx-arm64/Ryu "/path/to/Game.xci" \
+    --target-fps 60 \
+    --scaling-filter Bilinear
+  ```
+* **Windows:**
+  ```powershell
+  .\distribution\publish\win-x64\Ryu.exe "C:\Games\Game.xci" `
+    --target-fps 60 `
+    --scaling-filter Bilinear
+  ```
+
+#### 4. Maximum Framerate / High-Refresh Profile (120Hz ProMotion & Handheld 720p)
+*Cuts GPU fill-rate pressure in half by utilizing Handheld 720p mode, locks 120 FPS cadence on Apple ProMotion / VRR screens, and delivers sub-millisecond input responsiveness.*
+
+* **macOS:**
+  ```bash
+  ./distribution/publish/osx-arm64/Ryu "/path/to/Game.xci" \
+    --target-fps 120 \
+    --disable-docked-mode \
+    --backend-threading on \
+    --scaling-filter Nearest
+  ```
+* **Windows:**
+  ```powershell
+  .\distribution\publish\win-x64\Ryu.exe "C:\Games\Game.xci" `
+    --target-fps 120 `
+    --disable-docked-mode `
+    --backend-threading on `
+    --scaling-filter Nearest
+  ```
+
+> [!TIP]
+> * **Paths with spaces:** Always wrap your file paths in double quotes (`"..."`).
+> * **Line Continuation:** Use backslashes (`\`) on macOS/Linux Terminal and backticks (`` ` ``) on Windows PowerShell to format long commands cleanly.
+
+---
+
 ### Target Framerate and Presentation Cadence (30 / 60 / 120 FPS)
 Ryu features dynamic display synchronization that can lock presentation cadence to your desired frame rate:
 
