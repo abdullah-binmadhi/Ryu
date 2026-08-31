@@ -112,13 +112,18 @@ Pass the path of the game image (`.xci`, `.nsp`, `.nca`, or `.nro`):
 
 * **macOS:**
   ```bash
-  ./distribution/publish/osx-arm64/Ryu "/path/to/Game.xci"
+  ./distribution/publish/osx-arm64/Ryu "/Users/username/Desktop/Ryu/games/GameName.xci" \
+    --target-fps 60 \
+    --scaling-filter Fsr \
+    --scaling-filter-level 80
   ```
 * **Windows:**
   ```powershell
-  .\distribution\publish\win-x64\Ryu.exe "C:\Games\Game.xci"
+  .\distribution\publish\win-x64\Ryu.exe "C:\Users\username\Desktop\Ryu\games\GameName.xci" `
+  --target-fps 60 `
+  --scaling-filter Fsr `
+  --scaling-filter-level 80
   ```
-  *(Tip: On Windows, you can drag and drop `.xci` or `.nsp` files onto `Ryu.exe` directly).*
 
 ---
 
