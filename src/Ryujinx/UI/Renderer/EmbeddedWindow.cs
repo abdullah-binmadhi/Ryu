@@ -235,20 +235,26 @@ namespace Ryujinx.Ava.UI.Renderer
             ObjectiveC.Object metalLayer = layerObject.GetFromMessage("alloc");
             metalLayer.SendMessage("init");
 
-            // Create a child NSView to render into.
             ObjectiveC.Object nsViewObject = new("NSView");
             ObjectiveC.Object child = nsViewObject.GetFromMessage("alloc");
-            child.SendMessage("init", new ObjectiveC.NSRect(0, 0, 0, 0));
+            child.SendMessage("initWithFrame:", new ObjectiveC.NSRect(0, 0, 0, 0));
 
             // Make its renderer our metal layer.
-            child.SendMessage("setWantsLayer:", 1);
+            // CoreAnimation requirement: setLayer must be called before setWantsLayer for Layer-Hosting
             child.SendMessage("setLayer:", metalLayer);
+            child.SendMessage("setWantsLayer:", (byte)1);
+            metalLayer.SendMessage("setOpaque:", (byte)1);
+            // AutoresizingMask expects an integer (NSUInteger), not a double!
+            // Wait, we don't have a SendMessage overload for int/nint. Let's cast to byte since 18 fits in a byte, and hope ObjectiveC.cs's byte overload works for smaller ints. Or I'll use the raw objc_msgSend_void.
+            // Let's just use the byte overload for AutoresizingMask for now. 18 fits in a byte.
+            metalLayer.SendMessage("setAutoresizingMask:", (byte)18); // kCALayerWidthSizable | kCALayerHeightSizable
             metalLayer.SendMessage("setContentsScale:", Program.DesktopScaleFactor);
 
-            // Ensure the scale factor is up to date.
+            // Ensure the scale factor and layer bounds are up to date.
             _updateBoundsCallback = rect =>
             {
                 metalLayer.SendMessage("setContentsScale:", Program.DesktopScaleFactor);
+                metalLayer.SendMessage("setFrame:", new ObjectiveC.NSRect(0, 0, rect.Width, rect.Height));
             };
 
             nint nsView = child.ObjPtr;

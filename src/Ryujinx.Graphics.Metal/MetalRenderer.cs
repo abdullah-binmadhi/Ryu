@@ -26,9 +26,28 @@ namespace Ryujinx.Graphics.Metal
         private readonly MetalPipeline _pipeline;
         private readonly MetalWindow _window;
         private readonly MetalBufferManager _bufferManager;
+        private readonly MetalCommandPool _commandPool;
 
         public nint DeviceHandle => _device;
         public nint CommandQueueHandle => _commandQueue;
+        public MetalCommandPool CommandPool => _commandPool;
+
+        /// <summary>
+        /// Resolves a GAL BufferHandle to its MTLBuffer (or 0 when unknown).
+        /// </summary>
+        public nint GetBuffer(BufferHandle handle)
+        {
+            return _bufferManager.GetBuffer(handle);
+        }
+
+        /// <summary>
+        /// Ends any pending render pass and commits its command buffer so the
+        /// framebuffer is ready to be presented/blitted. Called by MetalWindow.Present.
+        /// </summary>
+        public void FlushBeforePresent()
+        {
+            _pipeline.FlushFrame();
+        }
 
         public MetalRenderer()
         {
@@ -38,7 +57,8 @@ namespace Ryujinx.Graphics.Metal
                 throw new PlatformNotSupportedException("Apple Metal is not supported on this device.");
             }
 
-            _commandQueue = MetalBindings.objc_msgSend(_device, MetalBindings.SelNewCommandQueue);
+            _commandPool = new MetalCommandPool(_device, 32);
+            _commandQueue = _commandPool.Queue;
             _bufferManager = new MetalBufferManager(_device);
             _pipeline = new MetalPipeline(this, _device, _commandQueue);
             _window = new MetalWindow(this, _device, _commandQueue);
@@ -88,7 +108,7 @@ namespace Ryujinx.Graphics.Metal
 
         public ITexture CreateTexture(TextureCreateInfo info)
         {
-            return new MetalTexture(_device, info);
+            return new MetalTexture(this, info);
         }
 
         public ITextureArray CreateTextureArray(int size, bool isBuffer)
@@ -194,7 +214,7 @@ namespace Ryujinx.Graphics.Metal
         {
             nint namePtr = MetalBindings.objc_msgSend(_device, MetalBindings.SelName);
             string gpuName = Marshal.PtrToStringUTF8(namePtr) ?? "Apple Silicon GPU";
-            return new HardwareInfo("Apple", gpuName, "Metal 3.0", "macOS 26.5");
+            return new HardwareInfo("Apple", gpuName, "Metal 4.0", "macOS 26.5");
         }
 
         public void Initialize(GraphicsDebugLevel glLogLevel)
@@ -208,7 +228,7 @@ namespace Ryujinx.Graphics.Metal
 
         public IProgram LoadProgramBinary(byte[] programBinary, bool isFragment, ShaderInfo info)
         {
-            return new MetalProgram(_device, programBinary, info);
+            return new MetalProgram(_device, programBinary, isFragment, info);
         }
 
         public void ResetCounter(CounterType type) { }
@@ -240,10 +260,7 @@ namespace Ryujinx.Graphics.Metal
             _window.Dispose();
             _pipeline.Dispose();
             _bufferManager.Dispose();
-            if (_commandQueue != nint.Zero)
-            {
-                MetalBindings.objc_msgSend_void(_commandQueue, MetalBindings.SelRelease);
-            }
+            _commandPool.Dispose();
             if (_device != nint.Zero)
             {
                 MetalBindings.objc_msgSend_void(_device, MetalBindings.SelRelease);

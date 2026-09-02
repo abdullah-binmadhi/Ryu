@@ -19,7 +19,7 @@ using Ryujinx.Common.Logging;
 using Ryujinx.Common.SystemInterop;
 using Ryujinx.Common.Utilities;
 using Ryujinx.Graphics.RenderDocApi;
-using Ryujinx.Graphics.Vulkan.MoltenVK;
+using Ryujinx.Graphics.Vulkan;
 using Ryujinx.Headless;
 using Ryujinx.SDL3.Common;
 using System;
@@ -237,10 +237,7 @@ namespace Ryujinx.Ava
             // Parse arguments
             CommandLineState.ParseArguments(args);
 
-            if (OperatingSystem.IsMacOS())
-            {
-                MVKInitialization.InitializeResolver();
-            }
+            // Metal/MoltenVK initialization removed.
 
             // Delete backup files after updating.
             Task.Run(Updater.CleanupUpdate);
@@ -370,6 +367,7 @@ namespace Ryujinx.Ava
                 {
                     "opengl" => GraphicsBackend.OpenGl,
                     "vulkan" => GraphicsBackend.Vulkan,
+                    "metal" => GraphicsBackend.Metal,
                     _ => ConfigurationState.Instance.Graphics.GraphicsBackend
                 };
 

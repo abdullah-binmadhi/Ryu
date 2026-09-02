@@ -13,6 +13,8 @@ namespace Ryujinx.Headless
     [SupportedOSPlatform("macos")]
     class MetalWindow : WindowBase
     {
+        private nint _metalView;
+
         public MetalWindow(
             InputManager inputManager,
             GraphicsDebugLevel glLogLevel,
@@ -26,7 +28,38 @@ namespace Ryujinx.Headless
 
         public override SDL_WindowFlags WindowFlags => SDL_WindowFlags.SDL_WINDOW_METAL;
 
-        protected override void InitializeWindowRenderer() { }
+        protected override void InitializeWindowRenderer()
+        {
+            if (_metalView != nint.Zero)
+            {
+                return;
+            }
+
+            nint metalView = CreateMetalView();
+
+            nint layer = nint.Zero;
+
+            void AcquireLayer()
+            {
+                layer = (nint)SDL_Metal_GetLayer(metalView);
+            }
+
+            if (SDL3Driver.MainThreadDispatcher != null)
+            {
+                SDL3Driver.MainThreadDispatcher(AcquireLayer);
+            }
+            else
+            {
+                AcquireLayer();
+            }
+
+            if (layer != nint.Zero && Renderer?.Window is Ryujinx.Graphics.Metal.MetalWindow metalWindow)
+            {
+                metalWindow.SetLayer(layer);
+            }
+
+            _metalView = metalView;
+        }
 
         protected override void InitializeRenderer()
         {
@@ -44,7 +77,22 @@ namespace Ryujinx.Headless
 
         public unsafe nint CreateMetalView()
         {
-            nint metalView = (nint)SDL_Metal_CreateView(WindowHandle);
+            nint metalView = nint.Zero;
+
+            void CreateView()
+            {
+                metalView = (nint)SDL_Metal_CreateView(WindowHandle);
+            }
+
+            if (SDL3Driver.MainThreadDispatcher != null)
+            {
+                SDL3Driver.MainThreadDispatcher(CreateView);
+            }
+            else
+            {
+                CreateView();
+            }
+
             if (metalView == nint.Zero)
             {
                 string errorMessage = $"SDL_Metal_CreateView failed with error \"{SDL_GetError()}\"";
@@ -56,6 +104,12 @@ namespace Ryujinx.Headless
 
         protected override void FinalizeWindowRenderer()
         {
+            if (_metalView != nint.Zero)
+            {
+                SDL_Metal_DestroyView(_metalView);
+                _metalView = nint.Zero;
+            }
+
             Device.DisposeGpu();
         }
 

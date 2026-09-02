@@ -23,6 +23,7 @@ namespace Ryujinx.Ava.UI.Renderer
             {
                 GraphicsBackend.OpenGl => new EmbeddedWindowOpenGL(),
                 GraphicsBackend.Vulkan => new EmbeddedWindowVulkan(),
+                GraphicsBackend.Metal => new EmbeddedWindowMetal(),
                 _ => throw new NotSupportedException()
             };
 
@@ -34,6 +35,7 @@ namespace Ryujinx.Ava.UI.Renderer
             {
                 EmbeddedWindowVulkan => GraphicsBackend.Vulkan,
                 EmbeddedWindowOpenGL => GraphicsBackend.OpenGl,
+                EmbeddedWindowMetal => GraphicsBackend.Metal,
                 _ => throw new NotImplementedException()
             };
 

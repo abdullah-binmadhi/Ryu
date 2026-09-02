@@ -15,4 +15,11 @@
     <ProjectReference Include="..\Ryujinx.Memory\Ryujinx.Memory.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.SPIRV.Cross" />
+    <PackageReference Include="Silk.NET.SPIRV.Cross.Native" />
+    <PackageReference Include="Silk.NET.Shaderc" />
+    <PackageReference Include="Silk.NET.Vulkan" />
+  </ItemGroup>
+
 </Project>

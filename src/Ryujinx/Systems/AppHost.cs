@@ -969,6 +969,17 @@ namespace Ryujinx.Ava.Systems
             }
         }
 
+        private IRenderer CreateMetalRenderer()
+        {
+            var renderer = new Ryujinx.Graphics.Metal.MetalRenderer();
+            var metalWindowHost = (RendererHost.EmbeddedWindow as EmbeddedWindowMetal)!;
+            if (renderer.Window is Ryujinx.Graphics.Metal.MetalWindow metalWindow)
+            {
+                metalWindow.SetLayer(metalWindowHost.GetLayer());
+            }
+            return renderer;
+        }
+
         private void InitEmulatedSwitch()
         {
             // Initialize KeySet.
@@ -983,6 +994,7 @@ namespace Ryujinx.Ava.Systems
                     ConfigurationState.Instance.Graphics.PreferredGpu,
                     (RendererHost.EmbeddedWindow as EmbeddedWindowVulkan)!.CreateSurface,
                     VulkanHelper.GetRequiredInstanceExtensions),
+                GraphicsBackend.Metal => CreateMetalRenderer(),
                 _ => new OpenGLRenderer()
             };
 
@@ -1194,6 +1206,7 @@ namespace Ryujinx.Ava.Systems
             {
                 GraphicsBackend.Vulkan => "Vulkan",
                 GraphicsBackend.OpenGl => "OpenGL",
+                GraphicsBackend.Metal => "Metal",
                 _ => throw new NotImplementedException()
             };
 
