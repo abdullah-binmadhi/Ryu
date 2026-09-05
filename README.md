@@ -2,7 +2,17 @@
 
 Ryu is the **World's First Pure Native Apple Silicon Nintendo Switch Emulator**, built from the ground up specifically for macOS and Apple M-Series hardware (M1/M2/M3/M4/M5).
 
-By discarding legacy x86/Windows cross-platform abstractions, Ryu interfaces directly with Apple's bare-metal hardware subsystems: **Apple Hypervisor (`Hypervisor.framework`)**, **Mach VM Zero-Copy Unified Memory**, **Darwin `QOS_CLASS_USER_INTERACTIVE` CPU Scheduling**, and **Apple Metal 3 (`CAMetalLayer`)**.
+By discarding legacy x86/Windows cross-platform abstractions, Ryu interfaces directly with Apple's bare-metal hardware subsystems: **Apple Hypervisor (`Hypervisor.framework`)**, **Mach VM Zero-Copy Unified Memory**, **Darwin `QOS_CLASS_USER_INTERACTIVE` CPU Scheduling**, and **Native Apple Metal 4 & Metal 3 Hybrid Engine (`Ryujinx.Graphics.Metal` / `CAMetalLayer`)**.
+
+---
+
+## Architecture & Roadmap Documentation
+
+- **[Documentation Index](docs/README.md)**: Master documentation catalog.
+- **[Native Metal Execution Roadmap](docs/native-metal-execution-roadmap.md)**: Operational 7-phase execution roadmap and live gate status.
+- **[Native Metal 4 Engine Plan](docs/native-engine-plan.md)**: Architectural source of truth for the native Metal 4 engine.
+- **[Complete Native Metal Reference](docs/full-metal.md)**: Metal 4 bindings, argument tables, and implementation details.
+- **[System Architectural Specification](README2.md)**: Deep dive into headless CLI, Mach QoS, and memory tracking.
 
 ---
 
@@ -43,6 +53,9 @@ All critical emulation threads (guest ARM64 CPU cores, GPU dispatch queues, DSP 
 
 ### 4. Direct `CAMetalLayer` Presentation & ProMotion Sync
 Ryu bypasses heavy UI frameworks (Qt/Avalonia) and renders directly to native `CAMetalLayer` surfaces with sub-millisecond frame pacing. On 120Hz Apple ProMotion Liquid Retina displays, Ryu implements integer cadence division (60 FPS at 2 ticks; 30 FPS at 4 ticks), eliminating stutter, frame pacing judder, and CPU spin-waiting loops.
+
+### 5. Native Apple Metal 4 GAL Engine (`Ryujinx.Graphics.Metal`)
+Ryu implements a custom Apple Metal 4 GAL driver (`--graphics-backend metal`), utilizing `MTL4ArgumentTable` zero-copy bindings (buffers bound directly by GPU address, textures/samplers via GPU resource IDs) and multi-threaded command encoding across Apple Silicon Performance Cores. It pairs high-throughput Metal 4 render and compute pipelines with intentional Metal 3 presentation and format-converting blits, completely eliminating intermediate translation layers like MoltenVK.
 
 ---
 

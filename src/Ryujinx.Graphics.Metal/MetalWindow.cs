@@ -3,7 +3,11 @@ using Ryujinx.Common.Logging;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Metal.Interop;
 using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.IO;
 using System.Runtime.Versioning;
+using System.Threading;
 
 namespace Ryujinx.Graphics.Metal
 {
@@ -26,7 +30,47 @@ namespace Ryujinx.Graphics.Metal
         private int _lastInputWidth;
         private int _lastInputHeight;
         private int _readbackFrames;
+        private int _presentCount;
         private bool _sawNonzeroFrame;
+        private bool _captureStarted;
+        private int _captureFrames;
+        private int _logPresentCount;
+
+        private static readonly bool s_captureEnabled =
+            Environment.GetEnvironmentVariable("RYU_METAL_CAPTURE") == "1" ||
+            Environment.GetEnvironmentVariable("RYU_METAL_CAPTURE_DIR") != null;
+
+        private static readonly bool s_preferLastDrawn =
+            Environment.GetEnvironmentVariable("RYU_METAL_PRESENT_LAST_DRAWN") == "1";
+
+        private static readonly string CaptureDirectory = InitializeCaptureDirectory();
+
+        private static string InitializeCaptureDirectory()
+        {
+            string dir = Environment.GetEnvironmentVariable("RYU_METAL_CAPTURE_DIR") ??
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "captures");
+            try
+            {
+                Directory.CreateDirectory(dir);
+            }
+            catch { }
+            return dir;
+        }
+
+        private struct ReadbackRequest
+        {
+            public nint TextureHandle;
+            public int Width;
+            public int Height;
+            public Format Format;
+            public ulong TargetFenceValue;
+            public int FrameIndex;
+            public string Tag;
+        }
+
+        private readonly BlockingCollection<ReadbackRequest> _readbackQueue = new(new ConcurrentQueue<ReadbackRequest>(), 8);
+        private Thread _readbackThread;
+        private volatile bool _readbackRunning;
 
         private const string PresentationShader = @"
 #include <metal_stdlib>
@@ -58,6 +102,18 @@ fragment float4 f_main(VertexOut in [[stage_in]], texture2d<float> tex [[texture
             _commandQueue = commandQueue;
 
             CompilePresentationShader();
+            StartReadbackWorker();
+        }
+
+        private void StartReadbackWorker()
+        {
+            _readbackRunning = true;
+            _readbackThread = new Thread(ReadbackWorkerLoop)
+            {
+                IsBackground = true,
+                Name = "Metal.HeadlessReadbackWorker"
+            };
+            _readbackThread.Start();
         }
 
         private void CompilePresentationShader()
@@ -127,6 +183,21 @@ fragment float4 f_main(VertexOut in [[stage_in]], texture2d<float> tex [[texture
                     return;
                 }
 
+                // Start an opt-in Xcode GPU capture before flushing the game pass. This
+                // captures the real game render path, not only the synthetic diagnostics.
+                if (!_captureStarted && Environment.GetEnvironmentVariable("RYU_METAL_GPU_CAPTURE") == "1")
+                {
+                    nint captureManager = MetalBindings.objc_msgSend(
+                        MetalBindings.objc_getClass("MTLCaptureManager"),
+                        MetalBindings.SelSharedCaptureManager);
+                    if (captureManager != nint.Zero)
+                    {
+                        MetalBindings.objc_msgSend_void(captureManager, MetalBindings.SelStartCaptureWithDevice, _device);
+                        _captureStarted = true;
+                        Logger.Warning?.Print(LogClass.Gpu, "[GPU_CAPTURE] started MTLCaptureManager capture for one presented frame");
+                    }
+                }
+
                 // M4: commit any pending pipeline render pass before the blit so the
                 // blit reads the freshly rendered framebuffer (ordered command buffers).
                 _renderer?.FlushBeforePresent();
@@ -155,9 +226,33 @@ fragment float4 f_main(VertexOut in [[stage_in]], texture2d<float> tex [[texture
                     texture = tTex.Base;
                 }
 
+                if (_renderer != null && _renderer.M4Queue.CompletionEvent != nint.Zero && _renderer.M4Queue.LastSignaledValue > 0)
+                {
+                    MetalBindings.objc_msgSend_void(commandBuffer, MetalBindings.SelEncodeWaitForEventValue, _renderer.M4Queue.CompletionEvent, _renderer.M4Queue.LastSignaledValue);
+                }
+
                 if (texture is MetalTexture metalTexture && metalTexture.TextureHandle != nint.Zero)
                 {
-                    Logger.Warning?.Print(LogClass.Gpu, $"[PRESENT] metalTexture handle=0x{metalTexture.TextureHandle:X} fmt={metalTexture.Format} w={metalTexture.Width} h={metalTexture.Height}");
+                    MetalTexture sourceToPresent = metalTexture;
+                    MetalTexture lastDrawn = _renderer?.LastDrawnTarget;
+                    bool preferLastDrawn = s_preferLastDrawn;
+
+                    if (preferLastDrawn && lastDrawn != null && lastDrawn.TextureHandle != nint.Zero &&
+                        lastDrawn.Width == metalTexture.Width && lastDrawn.Height == metalTexture.Height)
+                    {
+                        sourceToPresent = lastDrawn;
+                        Logger.Warning?.Print(LogClass.Gpu, $"[TARGET_DIAG] presenting LastDrawn 0x{lastDrawn.TextureHandle:X} instead of submitted 0x{metalTexture.TextureHandle:X}");
+                    }
+
+                    if (lastDrawn != null && lastDrawn.TextureHandle != nint.Zero && lastDrawn != metalTexture)
+                    {
+                        Logger.Warning?.Print(LogClass.Gpu, $"[TARGET_DIAG] Swapchain 0x{sourceToPresent.TextureHandle:X} ({sourceToPresent.Format}) != LastDrawn 0x{lastDrawn.TextureHandle:X} ({lastDrawn.Format}) draws={(_renderer.Pipeline as MetalPipeline)?.LastDrawnTargetDrawCount}");
+                    }
+
+                    if (_logPresentCount++ < 10)
+                    {
+                        Logger.Warning?.Print(LogClass.Gpu, $"[PRESENT] metalTexture handle=0x{metalTexture.TextureHandle:X} fmt={metalTexture.Format} w={metalTexture.Width} h={metalTexture.Height}");
+                    }
                     // Fallback to standard render encoder
                     nint passDescriptor = MetalBindings.objc_msgSend(
                         MetalBindings.objc_getClass("MTLRenderPassDescriptor"),
@@ -171,12 +266,14 @@ fragment float4 f_main(VertexOut in [[stage_in]], texture2d<float> tex [[texture
                         if (colorAttachment != nint.Zero)
                         {
                             MetalBindings.objc_msgSend_void(colorAttachment, MetalBindings.SelSetTexture, drawableTexture);
+                            // Clear only as a fallback for uncovered pixels. The presentation
+                            // shader writes the drawable's visible color; diagnostic clears must
+                            // not tint or replace the submitted framebuffer.
                             MetalBindings.objc_msgSend_void(colorAttachment, MetalBindings.SelSetLoadAction, (nuint)2); // MTLLoadActionClear
-                            // Red clear color for diagnostic
                             unsafe
                             {
-                                MTLColor red = new(1.0, 0.0, 0.0, 1.0);
-                                MetalBindings.objc_msgSend_void(colorAttachment, MetalBindings.SelSetClearColor, &red);
+                                MTLColor clear = new(0.0, 0.0, 0.0, 1.0);
+                                MetalBindings.objc_msgSend_void(colorAttachment, MetalBindings.SelSetClearColor, &clear);
                             }
                             MetalBindings.objc_msgSend_void(colorAttachment, MetalBindings.SelSetStoreAction, (nuint)MetalBindings.MTLStoreActionStore);
                         }
@@ -188,7 +285,8 @@ fragment float4 f_main(VertexOut in [[stage_in]], texture2d<float> tex [[texture
                             if (_pipelineState != nint.Zero)
                             {
                                 MetalBindings.objc_msgSend_void(encoder, MetalBindings.SelSetRenderPipelineState, _pipelineState);
-                                MetalBindings.objc_msgSend_void(encoder, MetalBindings.SelSetFragmentTextureAtIndex, metalTexture.TextureHandle, (nuint)0);
+                                MetalBindings.objc_msgSend_void(encoder, MetalBindings.SelSetCullMode, (nuint)MetalBindings.MTLCullModeNone);
+                                MetalBindings.objc_msgSend_void(encoder, MetalBindings.SelSetFragmentTextureAtIndex, sourceToPresent.TextureHandle, (nuint)0);
                                 MetalBindings.objc_msgSend_void(encoder, MetalBindings.SelDrawPrimitivesVertexStartVertexCount, (nuint)MetalBindings.MTLPrimitiveTypeTriangle, (nuint)0, (nuint)3);
                             }
                             else
@@ -208,10 +306,22 @@ fragment float4 f_main(VertexOut in [[stage_in]], texture2d<float> tex [[texture
                         Logger.Error?.Print(LogClass.Gpu, "CRITICAL: RenderPassDescriptor creation failed!");
                     }
 
-                    LogPresentTextureReadback(metalTexture);
+                    QueuePresentReadback(sourceToPresent, _renderer?.M4Queue?.LastSignaledValue ?? 0, preferLastDrawn ? "LAST_DRAWN_PRESENT" : "SWAPCHAIN");
                 }
                 MetalBindings.objc_msgSend_void(commandBuffer, MetalBindings.SelPresentDrawable, drawable);
                 MetalBindings.objc_msgSend_void(commandBuffer, MetalBindings.SelCommit);
+
+                if (_captureStarted && ++_captureFrames >= 1)
+                {
+                    nint captureManager = MetalBindings.objc_msgSend(
+                        MetalBindings.objc_getClass("MTLCaptureManager"),
+                        MetalBindings.SelSharedCaptureManager);
+                    if (captureManager != nint.Zero)
+                    {
+                        MetalBindings.objc_msgSend_void(captureManager, MetalBindings.SelStopCapture);
+                        Logger.Warning?.Print(LogClass.Gpu, "[GPU_CAPTURE] stopped after one presented frame; inspect the active Xcode GPU capture");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -232,86 +342,310 @@ fragment float4 f_main(VertexOut in [[stage_in]], texture2d<float> tex [[texture
             }
         }
 
-        /// <summary>
-        /// Reads back the presented framebuffer over time and logs non-trivial texel
-        /// statistics (mean, min/max, nonzero count) plus corner/center texels until a
-        /// real (bright) frame is seen. This is the verification/debugging signal for
-        /// the magenta fix: a live image shows a nonzero mean and varied texels, while
-        /// an empty (all-zero) framebuffer stays 0. Gated by a generous cap. The
-        /// "nonzero-first" latch stops logging once a definitely-live frame appears.
-        /// </summary>
-        private void LogPresentTextureReadback(MetalTexture texture)
+        private void QueuePresentReadback(MetalTexture texture, ulong targetFenceValue, string tag = "SWAPCHAIN")
         {
-            if (_sawNonzeroFrame || _readbackFrames >= 240 || texture == null || texture.TextureHandle == nint.Zero)
+            if (!s_captureEnabled || texture == null || texture.TextureHandle == nint.Zero)
+            {
+                return;
+            }
+
+            _presentCount++;
+
+            // Sample early frames (1..5) then every 30 frames (~1s at 30fps)
+            bool shouldSample = _presentCount <= 5 || (_presentCount % 30 == 0);
+            if (!shouldSample || _readbackQueue.Count >= 2)
             {
                 return;
             }
 
             _readbackFrames++;
 
-            using (PinnedSpan<byte> data = texture.GetData())
-            {
-                ReadOnlySpan<byte> span = data.Get();
-                int w = texture.Width;
-                int h = texture.Height;
+            ulong eventNow = (_renderer != null && _renderer.M4Queue.CompletionEvent != nint.Zero) ? _renderer.M4Queue.SignaledValue : 0;
+            Logger.Warning?.Print(LogClass.Gpu, $"[FENCE:ENQ] {tag} frame={_presentCount} target={targetFenceValue} eventNow={eventNow} diff={targetFenceValue - Math.Min(targetFenceValue, eventNow)}");
 
-                if (span.Length < w * h || w <= 0 || h <= 0)
+            _readbackQueue.TryAdd(new ReadbackRequest
+            {
+                TextureHandle = texture.TextureHandle,
+                Width = texture.Width,
+                Height = texture.Height,
+                Format = texture.Format,
+                TargetFenceValue = targetFenceValue,
+                FrameIndex = _presentCount,
+                Tag = tag
+            });
+        }
+
+        private unsafe void ReadbackWorkerLoop()
+        {
+            const nuint PageAlignment = 16384; // 16KB Apple Silicon system page size
+            byte* alignedBuffer = null;
+            nuint bufferCapacity = 0;
+
+            try
+            {
+                while (_readbackRunning)
                 {
-                    Logger.Warning?.Print(LogClass.Gpu, $"[READBACK] frame {_readbackFrames}: no data ({span.Length} bytes for {w}x{h})");
-                    return;
+                    if (!_readbackQueue.TryTake(out ReadbackRequest req, 100))
+                    {
+                        continue;
+                    }
+
+                    if (req.TextureHandle == nint.Zero)
+                    {
+                        continue;
+                    }
+
+                    // 1. Synchronization via MTLSharedEvent: never read the texture before
+                    //    the GPU has reached the batch that rendered it. Previous behavior
+                    //    waited ≤100 ms and proceeded on timeout, so headless readbacks raced
+                    //    ahead of the (heavily oversubscribed) GPU and always returned black.
+                    if (_renderer != null && _renderer.M4Queue.CompletionEvent != nint.Zero && req.TargetFenceValue > 0)
+                    {
+                        ulong before = _renderer.M4Queue.SignaledValue;
+                        int waitIters = 0;
+
+                        for (int attempt = 0; attempt < 60; attempt++)
+                        {
+                            ulong now = _renderer.M4Queue.SignaledValue;
+
+                            if (now >= req.TargetFenceValue)
+                            {
+                                break;
+                            }
+
+                            waitIters++;
+                            Metal4Bindings.m4_wait_event_bool(
+                                _renderer.M4Queue.CompletionEvent,
+                                Metal4Bindings.SelWaitUntilSignaledValueTimeoutMS,
+                                req.TargetFenceValue,
+                                250);
+                        }
+
+                        Logger.Warning?.Print(LogClass.Gpu, $"[FENCE:WAIT] {req.Tag} frame={req.FrameIndex} target={req.TargetFenceValue} before={before} after={_renderer.M4Queue.SignaledValue} iters={waitIters}");
+                    }
+
+                    int w = req.Width;
+                    int h = req.Height;
+                    int bytesPerRow = w * 4; // 4 bytes per pixel for R8G8B8A8 and R11G11B10Float
+                    nuint totalSize = (nuint)(bytesPerRow * h);
+
+                    if (alignedBuffer == null || bufferCapacity < totalSize)
+                    {
+                        if (alignedBuffer != null)
+                        {
+                            System.Runtime.InteropServices.NativeMemory.AlignedFree(alignedBuffer);
+                        }
+                        nuint allocSize = (totalSize + PageAlignment - 1) & ~(PageAlignment - 1);
+                        alignedBuffer = (byte*)System.Runtime.InteropServices.NativeMemory.AlignedAlloc(allocSize, PageAlignment);
+                        bufferCapacity = allocSize;
+                    }
+
+                    MTLRegion region = new(0, 0, 0, (nuint)w, (nuint)h, 1);
+
+                    // 2. Direct 16KB page-aligned UMA getBytes:
+                    MetalBindings.objc_msgSend_void(
+                        req.TextureHandle,
+                        MetalBindings.SelGetBytesBytesPerRowFromRegionMipmapLevel,
+                        alignedBuffer,
+                        (nuint)bytesPerRow,
+                        &region,
+                        (nuint)0);
+
+                    // 3. Analyze readback data
+                    ProcessReadbackData(alignedBuffer, w, h, req.FrameIndex, req.Format, req.Tag);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error?.Print(LogClass.Gpu, $"Headless readback worker error: {ex.Message}");
+            }
+            finally
+            {
+                if (alignedBuffer != null)
+                {
+                    System.Runtime.InteropServices.NativeMemory.AlignedFree(alignedBuffer);
+                }
+            }
+        }
+
+        private unsafe void ProcessReadbackData(byte* span, int w, int h, int frameIndex, Format format, string tag)
+        {
+            int bytesPerPixel = 4;
+            int stepX = Math.Max(1, w / 32);
+            int stepY = Math.Max(1, h / 32);
+            int gridCount = ((w + stepX - 1) / stepX) * ((h + stepY - 1) / stepY);
+
+            long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            int nonzero = 0;
+            int minR = 255, maxR = 0;
+
+            for (int y = 0; y < h; y += stepY)
+            {
+                for (int x = 0; x < w; x += stepX)
+                {
+                    int offset = (y * w + x) * bytesPerPixel;
+                    int r, g, b, a;
+
+                    if (format == Format.R11G11B10Float)
+                    {
+                        uint packed = *(uint*)(span + offset);
+                        r = (int)((packed & 0x7FF) >> 3);
+                        g = (int)(((packed >> 11) & 0x7FF) >> 3);
+                        b = (int)(((packed >> 22) & 0x3FF) >> 2);
+                        a = 255;
+                    }
+                    else
+                    {
+                        r = span[offset];
+                        g = span[offset + 1];
+                        b = span[offset + 2];
+                        a = span[offset + 3];
+                    }
+
+                    sumR += r;
+                    sumG += g;
+                    sumB += b;
+                    sumA += a;
+                    minR = Math.Min(minR, r);
+                    maxR = Math.Max(maxR, r);
+
+                    if (r != 0 || g != 0 || b != 0)
+                    {
+                        nonzero++;
+                    }
+                }
+            }
+
+            if (nonzero > gridCount / 4 && (maxR >= 24 || sumG / gridCount >= 24 || sumB / gridCount >= 24))
+            {
+                _sawNonzeroFrame = true;
+            }
+
+            string hex(int v) => v.ToString("X2");
+            int px(int x, int y, int c) => (y * w + x) * bytesPerPixel + c;
+            int cx = w / 2, cy = h / 2;
+            var corners = $"tl={hex(span[px(0, 0, 0)])}{hex(span[px(0, 0, 1)])}{hex(span[px(0, 0, 2)])} " +
+                          $"tr={hex(span[px(w - 1, 0, 0)])}{hex(span[px(w - 1, 0, 1)])}{hex(span[px(w - 1, 0, 2)])} " +
+                          $"bl={hex(span[px(0, h - 1, 0)])}{hex(span[px(0, h - 1, 1)])}{hex(span[px(0, h - 1, 2)])} " +
+                          $"br={hex(span[px(w - 1, h - 1, 0)])}{hex(span[px(w - 1, h - 1, 1)])}{hex(span[px(w - 1, h - 1, 2)])} " +
+                          $"center={hex(span[px(cx, cy, 0)])}{hex(span[px(cx, cy, 1)])}{hex(span[px(cx, cy, 2)])}";
+
+            Logger.Warning?.Print(LogClass.Gpu,
+                $"[READBACK:{tag}] frame {frameIndex} ({format}): mean=({sumR / gridCount},{sumG / gridCount},{sumB / gridCount},{sumA / gridCount}) " +
+                $"minR={minR} maxR={maxR} nonzeroGrid={nonzero}/{gridCount} {corners} sawNonzero={_sawNonzeroFrame}");
+
+            SaveFramePng(span, w, h, frameIndex, format, tag);
+        }
+
+        private static unsafe void SaveFramePng(byte* span, int w, int h, int frameIndex, Format format, string tag)
+        {
+            if (!s_captureEnabled)
+            {
+                return;
+            }
+
+            try
+            {
+                string dir = CaptureDirectory;
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
                 }
 
-                int bytesPerPixel = span.Length / (w * h);
-                int channels = Math.Min(4, bytesPerPixel);
-                int stepX = Math.Max(1, w / 32);
-                int stepY = Math.Max(1, h / 32);
-                int gridCount = ((w + stepX - 1) / stepX) * ((h + stepY - 1) / stepY);
+                string tempBmp = Path.Combine(dir, $"temp_{frameIndex}.bmp");
+                string finalPng = Path.Combine(dir, $"frame_{frameIndex:D4}.png");
+                string latestPng = Path.Combine(dir, "latest_frame.png");
 
-                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-                int nonzero = 0;
-                int minR = 255, maxR = 0;
+                int rowPadding = (4 - (w * 3) % 4) % 4;
+                int imageSize = (w * 3 + rowPadding) * h;
+                int fileSize = 54 + imageSize;
 
-                for (int y = 0; y < h; y += stepY)
+                using (var fs = new FileStream(tempBmp, FileMode.Create, FileAccess.Write))
+                using (var bw = new BinaryWriter(fs))
                 {
-                    for (int x = 0; x < w; x += stepX)
+                    // BMP Header
+                    bw.Write((byte)'B');
+                    bw.Write((byte)'M');
+                    bw.Write(fileSize);
+                    bw.Write(0);
+                    bw.Write(54);
+
+                    // DIB Header (BITMAPINFOHEADER)
+                    bw.Write(40);
+                    bw.Write(w);
+                    bw.Write(h);
+                    bw.Write((short)1);
+                    bw.Write((short)24); // 24-bit RGB
+                    bw.Write(0);
+                    bw.Write(imageSize);
+                    bw.Write(2835);
+                    bw.Write(2835);
+                    bw.Write(0);
+                    bw.Write(0);
+
+                    byte[] pad = new byte[rowPadding];
+                    int bytesPerPixel = 4;
+
+                    // BMP stores scanlines bottom-to-top, BGR
+                    for (int y = h - 1; y >= 0; y--)
                     {
-                        int offset = (y * w + x) * bytesPerPixel;
-                        int r = channels > 0 ? span[offset] : 0;
-                        int g = channels > 1 ? span[offset + 1] : 0;
-                        int b = channels > 2 ? span[offset + 2] : 0;
-                        int a = channels > 3 ? span[offset + 3] : 255;
-
-                        sumR += r;
-                        sumG += g;
-                        sumB += b;
-                        sumA += a;
-                        minR = Math.Min(minR, r);
-                        maxR = Math.Max(maxR, r);
-
-                        if (r != 0 || g != 0)
+                        for (int x = 0; x < w; x++)
                         {
-                            nonzero++;
+                            int offset = (y * w + x) * bytesPerPixel;
+                            byte r, g, b;
+
+                            if (format == Format.R11G11B10Float)
+                            {
+                                uint packed = *(uint*)(span + offset);
+                                r = (byte)((packed & 0x7FF) >> 3);
+                                g = (byte)(((packed >> 11) & 0x7FF) >> 3);
+                                b = (byte)(((packed >> 22) & 0x3FF) >> 2);
+                            }
+                            else if (format == Format.B8G8R8A8Unorm)
+                            {
+                                b = span[offset];
+                                g = span[offset + 1];
+                                r = span[offset + 2];
+                            }
+                            else
+                            {
+                                r = span[offset];
+                                g = span[offset + 1];
+                                b = span[offset + 2];
+                            }
+
+                            bw.Write(b);
+                            bw.Write(g);
+                            bw.Write(r);
+                        }
+
+                        if (rowPadding > 0)
+                        {
+                            bw.Write(pad);
                         }
                     }
                 }
 
-                if (nonzero > gridCount / 4 && maxR >= 24)
+                var psi = new ProcessStartInfo("/usr/bin/sips", $"-s format png \"{tempBmp}\" --out \"{finalPng}\"")
                 {
-                    _sawNonzeroFrame = true;
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                var proc = Process.Start(psi);
+                proc?.WaitForExit(2000);
+
+                try
+                {
+                    File.Delete(tempBmp);
+                    File.Copy(finalPng, latestPng, true);
                 }
+                catch { }
 
-                string hex(int v) => v.ToString("0x02");
-                int px(int x, int y) => (y * w + x) * bytesPerPixel;
-                int cx = w / 2, cy = h / 2;
-                var corners = $"tl={hex(span[px(0, 0)])}{hex(span[px(0, 0)] + 1)}{hex(span[px(0, 0)] + 2)} " +
-                              $"tr={hex(span[px(w - 1, 0)])}{hex(span[px(w - 1, 0)] + 1)}{hex(span[px(w - 1, 0)] + 2)} " +
-                              $"bl={hex(span[px(0, h - 1)])}{hex(span[px(0, h - 1)] + 1)}{hex(span[px(0, h - 1)] + 2)} " +
-                              $"br={hex(span[px(w - 1, h - 1)])}{hex(span[px(w - 1, h - 1)] + 1)}{hex(span[px(w - 1, h - 1)] + 2)} " +
-                              $"center={hex(span[px(cx, cy)])}{hex(span[px(cx, cy)] + 1)}{hex(span[px(cx, cy)] + 2)}";
-
-                Logger.Warning?.Print(LogClass.Gpu,
-                    $"[READBACK] frame {_readbackFrames}: mean=({sumR / gridCount},{sumG / gridCount},{sumB / gridCount},{sumA / gridCount}) " +
-                    $"minR={minR} maxR={maxR} nonzeroGrid={nonzero}/{gridCount} {corners} sawNonzero={_sawNonzeroFrame}");
+                Logger.Warning?.Print(LogClass.Gpu, $"[FRAME_CAPTURE] Saved {finalPng} ({w}x{h}, {tag})");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error?.Print(LogClass.Gpu, $"[FRAME_CAPTURE] Failed to save frame {frameIndex}: {ex.Message}");
             }
         }
 
@@ -338,6 +672,9 @@ fragment float4 f_main(VertexOut in [[stage_in]], texture2d<float> tex [[texture
 
         public void Dispose()
         {
+            _readbackRunning = false;
+            _readbackQueue.CompleteAdding();
+
             if (_pipelineState != nint.Zero)
             {
                 MetalBindings.Release(_pipelineState);
@@ -350,13 +687,8 @@ fragment float4 f_main(VertexOut in [[stage_in]], texture2d<float> tex [[texture
                 _layer = nint.Zero;
             }
 
-            if (_upscaler != null)
-            {
-                _upscaler.Dispose();
-                _upscaler = null;
-            }
-
-            GC.SuppressFinalize(this);
+            _upscaler?.Dispose();
+            _upscaler = null;
         }
     }
 }

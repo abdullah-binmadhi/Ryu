@@ -138,6 +138,18 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static unsafe partial void objc_msgSend_void(nint receiver, nint selector, MTLViewport* viewport);
 
         [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
+        public static partial nint objc_msgSend(nint receiver, nint selector, nuint pixelFormat, nuint textureType, nuint levelLoc, nuint levelLen, nuint sliceLoc, nuint sliceLen);
+
+        [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
+        public static partial nint objc_msgSend(nint receiver, nint selector, nuint pixelFormat, nuint textureType, nuint levelLoc, nuint levelLen, nuint sliceLoc, nuint sliceLen, MTLTextureSwizzleChannels swizzle);
+
+        [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
+        public static partial void objc_msgSend_void(nint receiver, nint selector, float slopeScale, float units, float clamp);
+
+        [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
+        public static partial void objc_msgSend_float(nint receiver, nint selector, float value);
+
+        [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
         public static unsafe partial void objc_msgSend_void(nint receiver, nint selector, MTLScissorRect* scissor);
 
         // M6: array/cube texture upload — replaceRegion:mipmapLevel:slice:withBytes:bytesPerRow:bytesPerImage:
@@ -156,6 +168,13 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static unsafe partial void objc_msgSend_void_blitCopy(nint receiver, nint selector,
             nint srcTexture, nuint srcSlice, nuint srcLevel, MTLOrigin srcOrigin, MTLSize srcSize,
             nint dstTexture, nuint dstSlice, nuint dstLevel, MTLOrigin dstOrigin);
+
+        // Blit encoder: copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:
+        //               toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:
+        [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
+        public static unsafe partial void objc_msgSend_void_blitCopyToBuffer(nint receiver, nint selector,
+            nint srcTexture, nuint srcSlice, nuint srcLevel, MTLOrigin srcOrigin, MTLSize srcSize,
+            nint dstBuffer, nuint dstOffset, nuint dstBytesPerRow, nuint dstBytesPerImage);
 
 
         [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
@@ -178,6 +197,8 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelFillBufferRangeValue = sel_registerName("fillBuffer:range:value:");
         public static readonly nint SelCopyFromTextureToTexture = sel_registerName("copyFromTexture:toTexture:");
         public static readonly nint SelCopyFromTextureSourceSliceSourceLevelSourceOriginSourceSizeToTextureDestinationSliceDestinationLevelDestinationOrigin = sel_registerName("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:");
+        public static readonly nint SelCopyFromTextureToBuffer = sel_registerName("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:");
+
         public static readonly nint SelCommit = sel_registerName("commit");
         public static readonly nint SelWaitUntilCompleted = sel_registerName("waitUntilCompleted");
         public static readonly nint SelWaitUntilScheduled = sel_registerName("waitUntilScheduled");
@@ -201,6 +222,7 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelRenderPassDescriptor = sel_registerName("renderPassDescriptor");
         public static readonly nint SelColorAttachments = sel_registerName("colorAttachments");
         public static readonly nint SelDepthAttachment = sel_registerName("depthAttachment");
+        public static readonly nint SelStencilAttachment = sel_registerName("stencilAttachment");
         public static readonly nint SelObjectAtIndexedSubscript = sel_registerName("objectAtIndexedSubscript:");
         public static readonly nint SelSetTexture = sel_registerName("setTexture:");
         public static readonly nint SelSetLoadAction = sel_registerName("setLoadAction:");
@@ -210,6 +232,9 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelSetClearStencil = sel_registerName("setClearStencil:");
         public static readonly nint SelRenderCommandEncoderWithDescriptor = sel_registerName("renderCommandEncoderWithDescriptor:");
         public static readonly nint SelPresentDrawable = sel_registerName("presentDrawable:");
+        public static readonly nint SelSharedCaptureManager = sel_registerName("sharedCaptureManager");
+        public static readonly nint SelStartCaptureWithDevice = sel_registerName("startCaptureWithDevice:");
+        public static readonly nint SelStopCapture = sel_registerName("stopCapture");
 
         // M3: shader library + render pipeline surface
         public static readonly nint SelStringWithUTF8String = sel_registerName("stringWithUTF8String:");
@@ -228,6 +253,10 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelTexture2DDescriptorWithPixelFormatWidthHeightMipmapped = sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
         public static readonly nint SelNewTextureWithDescriptor = sel_registerName("newTextureWithDescriptor:");
         public static readonly nint SelNewTextureViewWithPixelFormat = sel_registerName("newTextureViewWithPixelFormat:");
+        public static readonly nint SelNewTextureViewWithPixelFormatTextureTypeLevelsSlices = sel_registerName("newTextureViewWithPixelFormat:textureType:levels:slices:");
+        public static readonly nint SelNewTextureViewWithPixelFormatTextureTypeLevelsSlicesSwizzle = sel_registerName("newTextureViewWithPixelFormat:textureType:levels:slices:swizzle:");
+        public static readonly nint SelSetDepthBiasSlopeScaleClamp = sel_registerName("setDepthBias:slopeScale:clamp:");
+        public static readonly nint SelSetDepthClipMode = sel_registerName("setDepthClipMode:");
         public static readonly nint SelSetUsage = sel_registerName("setUsage:");
         public static readonly nint SelSetTextureType = sel_registerName("setTextureType:");
         public static readonly nint SelSetArrayLength = sel_registerName("setArrayLength:");
@@ -321,12 +350,21 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelSetDestinationAlphaBlendFactor = sel_registerName("setDestinationAlphaBlendFactor:");
         public static readonly nint SelSetWriteMask = sel_registerName("setWriteMask:");
         public static readonly nint SelSetAlphaToCoverageEnabled = sel_registerName("setAlphaToCoverageEnabled:");
+        public static readonly nint SelSetAlphaToOneEnabled = sel_registerName("setAlphaToOneEnabled:");
 
         // M4: depth stencil state
         public static readonly nint SelNewDepthStencilStateWithDescriptor = sel_registerName("newDepthStencilStateWithDescriptor:");
         public static readonly nint SelDepthStencilDescriptor = sel_registerName("depthStencilDescriptor");
         public static readonly nint SelSetDepthCompareFunction = sel_registerName("setDepthCompareFunction:");
         public static readonly nint SelSetDepthWriteEnabled = sel_registerName("setDepthWriteEnabled:");
+        public static readonly nint SelSetFrontFaceStencil = sel_registerName("setFrontFaceStencil:");
+        public static readonly nint SelSetBackFaceStencil = sel_registerName("setBackFaceStencil:");
+        public static readonly nint SelSetStencilCompareFunction = sel_registerName("setStencilCompareFunction:");
+        public static readonly nint SelSetStencilFailureOperation = sel_registerName("setStencilFailureOperation:");
+        public static readonly nint SelSetDepthFailureOperation = sel_registerName("setDepthFailureOperation:");
+        public static readonly nint SelSetDepthStencilPassOperation = sel_registerName("setDepthStencilPassOperation:");
+        public static readonly nint SelSetReadMask = sel_registerName("setReadMask:");
+        public static readonly nint SelSetStencilFrontReferenceValueBackReferenceValue = sel_registerName("setStencilFrontReferenceValue:backReferenceValue:");
 
         // M4: sampler state
         public static readonly nint SelNewSamplerStateWithDescriptor = sel_registerName("newSamplerStateWithDescriptor:");
@@ -335,8 +373,12 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelSetMagFilter = sel_registerName("setMagFilter:");
         public static readonly nint SelSetSAddressMode = sel_registerName("setSAddressMode:");
         public static readonly nint SelSetTAddressMode = sel_registerName("setTAddressMode:");
+        public static readonly nint SelSetRAddressMode = sel_registerName("setRAddressMode:");
         public static readonly nint SelSetMipFilter = sel_registerName("setMipFilter:");
         public static readonly nint SelSetMaxAnisotropy = sel_registerName("setMaxAnisotropy:");
+        public static readonly nint SelSetCompareFunction = sel_registerName("setCompareFunction:");
+        public static readonly nint SelSetLodMinClamp = sel_registerName("setLodMinClamp:");
+        public static readonly nint SelSetLodMaxClamp = sel_registerName("setLodMaxClamp:");
 
         // M5/M6: command pool + sync (MTLEvent / MTLSharedEvent)
         public static readonly nint SelNewCommandQueueWithMaxCommandBufferCount = sel_registerName("newCommandQueueWithMaxCommandBufferCount:");
@@ -407,6 +449,7 @@ namespace Ryujinx.Graphics.Metal.Interop
         public const ulong MTLResourceStorageModeShared = 0;
         public const ulong MTLResourceCPUCacheModeDefaultCache = 0;
         public const ulong MTLCommandBufferStatusCompleted = 4;
+        public const ulong MTLCommandBufferStatusError = 5;
         public const ulong MTLPixelFormatRGBA8Unorm = 70;
         public const ulong MTLPixelFormatRGBA8Srgb = 71;
         public const ulong MTLPixelFormatRGBA8Snorm = 72;
@@ -515,6 +558,8 @@ namespace Ryujinx.Graphics.Metal.Interop
         public const ulong MTLPixelFormatASTC_12x12_sRGB = 200;
         public const ulong MTLPixelFormatASTC_12x12_LDR = 218;
 
+        public const ulong MTLLoadActionDontCare = 0;
+        public const ulong MTLLoadActionLoad = 1;
         public const ulong MTLLoadActionClear = 2;
         public const ulong MTLStoreActionStore = 1;
         public const ulong MTLPrimitiveTypePoint = 0;
@@ -534,6 +579,14 @@ namespace Ryujinx.Graphics.Metal.Interop
         public const ulong MTLTextureTypeCube = 5;
         public const ulong MTLTextureTypeCubeArray = 6;
         public const ulong MTLTextureType3D = 7;
+
+        // MTLTextureSwizzle
+        public const byte MTLTextureSwizzleZero = 0;
+        public const byte MTLTextureSwizzleOne = 1;
+        public const byte MTLTextureSwizzleRed = 2;
+        public const byte MTLTextureSwizzleGreen = 3;
+        public const byte MTLTextureSwizzleBlue = 4;
+        public const byte MTLTextureSwizzleAlpha = 5;
 
         // M4: fixed-function state constants
         public const ulong MTLCullModeNone = 0;
@@ -592,6 +645,17 @@ namespace Ryujinx.Graphics.Metal.Interop
         public const ulong MTLSamplerMipFilterNotMipmapped = 0;
         public const ulong MTLSamplerMipFilterNearest = 1;
         public const ulong MTLSamplerMipFilterLinear = 2;
+
+        // MTLStencilOperation
+        public const ulong MTLStencilOperationKeep = 0;
+        public const ulong MTLStencilOperationZero = 1;
+        public const ulong MTLStencilOperationReplace = 2;
+        public const ulong MTLStencilOperationIncrementClamp = 3;
+        public const ulong MTLStencilOperationDecrementClamp = 4;
+        public const ulong MTLStencilOperationInvert = 5;
+        public const ulong MTLStencilOperationIncrementWrap = 6;
+        public const ulong MTLStencilOperationDecrementWrap = 7;
+
         public const ulong MTLPrimitiveTopologyClassUnspecified = 0;
         public const ulong MTLPrimitiveTopologyClassPoint = 1;
         public const ulong MTLPrimitiveTopologyClassLine = 2;
@@ -739,5 +803,37 @@ namespace Ryujinx.Graphics.Metal.Interop
             Width = width;
             Height = height;
         }
+    }
+
+    /// <summary>
+    /// MTLTextureSwizzleChannels — 4 × uint8_t (4 bytes), passed in registers according to AAPCS64.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MTLTextureSwizzleChannels
+    {
+        public byte Red;
+        public byte Green;
+        public byte Blue;
+        public byte Alpha;
+
+        public MTLTextureSwizzleChannels(byte red, byte green, byte blue, byte alpha)
+        {
+            Red = red;
+            Green = green;
+            Blue = blue;
+            Alpha = alpha;
+        }
+
+        public static MTLTextureSwizzleChannels Identity => new(
+            MetalBindings.MTLTextureSwizzleRed,
+            MetalBindings.MTLTextureSwizzleGreen,
+            MetalBindings.MTLTextureSwizzleBlue,
+            MetalBindings.MTLTextureSwizzleAlpha);
+
+        public readonly bool IsIdentity =>
+            Red == MetalBindings.MTLTextureSwizzleRed &&
+            Green == MetalBindings.MTLTextureSwizzleGreen &&
+            Blue == MetalBindings.MTLTextureSwizzleBlue &&
+            Alpha == MetalBindings.MTLTextureSwizzleAlpha;
     }
 }

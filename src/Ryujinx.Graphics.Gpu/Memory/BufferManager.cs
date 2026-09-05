@@ -32,6 +32,18 @@ namespace Ryujinx.Graphics.Gpu.Memory
         private readonly BufferAssignment[] _ranges;
 
         /// <summary>
+        /// Cache of the last committed buffer texture storage, keyed by stage, binding, texture and
+        /// image/sampler role. Open-world titles (e.g. NieR:Automata) rebind their buffer textures
+        /// every draw; without this cache each rebind emits a TextureSetStorage plus a
+        /// SetTextureAndSampler/SetImage round-trip to the backend (~100k commands/s in the ruins).
+        /// </summary>
+        private readonly Dictionary<BufferTextureCacheKey, BufferRange> _committedBufferTextures;
+        private readonly Dictionary<BufferTextureArrayCacheKey, BufferRange> _committedBufferTextureArrays;
+
+        private readonly record struct BufferTextureCacheKey(ShaderStage Stage, int Binding, bool IsImage, ITexture Texture);
+        private readonly record struct BufferTextureArrayCacheKey(object Array, int Index, ITexture Texture);
+
+        /// <summary>
         /// Holds shader stage buffer state and binding information.
         /// </summary>
         private class BuffersPerStage
@@ -144,6 +156,8 @@ namespace Ryujinx.Graphics.Gpu.Memory
             _bufferTextures = [];
             _bufferTextureArrays = [];
             _bufferImageArrays = [];
+            _committedBufferTextures = [];
+            _committedBufferTextureArrays = [];
 
             _ranges = new BufferAssignment[Constants.TotalGpUniformBuffers * Constants.ShaderStages];
         }
@@ -503,6 +517,23 @@ namespace Ryujinx.Graphics.Gpu.Memory
                 {
                     bool isStore = binding.BindingInfo.Flags.HasFlag(TextureUsageFlags.ImageStore);
                     BufferRange range = bufferCache.GetBufferRange(binding.Range, BufferStageUtils.TextureBuffer(binding.Stage, binding.BindingInfo.Flags), isStore);
+
+                    // Skip the update if the storage for this binding hasn't changed since the last commit.
+                    // The BufferRange handle changes whenever the buffer cache reallocates the backing
+                    // memory, so reallocation is still detected and rebinds correctly.
+                    BufferTextureCacheKey key = new(binding.Stage, binding.BindingInfo.Binding, binding.IsImage, binding.Texture);
+
+                    if (_committedBufferTextures.TryGetValue(key, out BufferRange previous) &&
+                        previous.Handle == range.Handle &&
+                        previous.Offset == range.Offset &&
+                        previous.Size == range.Size &&
+                        previous.Write == range.Write)
+                    {
+                        continue;
+                    }
+
+                    _committedBufferTextures[key] = range;
+
                     binding.Texture.SetStorage(range);
 
                     // The texture must be rebound to use the new storage if it was updated.
@@ -527,6 +558,20 @@ namespace Ryujinx.Graphics.Gpu.Memory
                 foreach (BufferTextureArrayBinding<ITextureArray> binding in _bufferTextureArrays)
                 {
                     BufferRange range = bufferCache.GetBufferRange(binding.Range, BufferStage.None);
+
+                    BufferTextureArrayCacheKey key = new(binding.Array, binding.Index, binding.Texture);
+
+                    if (_committedBufferTextureArrays.TryGetValue(key, out BufferRange previous) &&
+                        previous.Handle == range.Handle &&
+                        previous.Offset == range.Offset &&
+                        previous.Size == range.Size &&
+                        previous.Write == range.Write)
+                    {
+                        continue;
+                    }
+
+                    _committedBufferTextureArrays[key] = range;
+
                     binding.Texture.SetStorage(range);
 
                     textureArray[0] = binding.Texture;
@@ -537,6 +582,20 @@ namespace Ryujinx.Graphics.Gpu.Memory
                 {
                     bool isStore = binding.BindingInfo.Flags.HasFlag(TextureUsageFlags.ImageStore);
                     BufferRange range = bufferCache.GetBufferRange(binding.Range, BufferStage.None, isStore);
+
+                    BufferTextureArrayCacheKey key = new(binding.Array, binding.Index, binding.Texture);
+
+                    if (_committedBufferTextureArrays.TryGetValue(key, out BufferRange previous) &&
+                        previous.Handle == range.Handle &&
+                        previous.Offset == range.Offset &&
+                        previous.Size == range.Size &&
+                        previous.Write == range.Write)
+                    {
+                        continue;
+                    }
+
+                    _committedBufferTextureArrays[key] = range;
+
                     binding.Texture.SetStorage(range);
 
                     textureArray[0] = binding.Texture;
@@ -928,6 +987,12 @@ namespace Ryujinx.Graphics.Gpu.Memory
         public void Rebind()
         {
             _rebind = true;
+
+            // NOTE: the buffer texture storage caches are intentionally NOT cleared here.
+            // Rebind() fires after every compute dispatch (once per frame for GPU-driven games),
+            // and clearing would nullify the caches entirely. Entries remain valid because they
+            // are keyed by the committed BufferRange, whose handle changes whenever the buffer
+            // cache reallocates the backing memory.
         }
     }
 }

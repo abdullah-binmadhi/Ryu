@@ -32,6 +32,9 @@ Unlike cross-platform emulators that rely on heavy graphical UI frameworks (such
 * **Mach VM Zero-Copy Unified Memory:** CPU and GPU share the same physical memory space with zero PCIe bus emulation.
 * **Darwin QoS P-Core Pinning:** Emulation worker threads are pinned to Apple Performance Cores via `QOS_CLASS_USER_INTERACTIVE`.
 * **Direct `CAMetalLayer` Presentation:** Renders directly to macOS native surfaces with sub-millisecond frame pacing.
+* **Native Apple Metal 4 GAL Engine (`Ryujinx.Graphics.Metal`):** High-throughput Metal 4 command encoding and `MTL4ArgumentTable` zero-copy bindings (`--graphics-backend metal`), bypassing intermediate translation layers like MoltenVK.
+
+*(For detailed architectural specifications and the active 7-phase implementation roadmap, see the [Documentation Index](docs/README.md) and [Native Metal Execution Roadmap](docs/native-metal-execution-roadmap.md).)*
 
 ---
 

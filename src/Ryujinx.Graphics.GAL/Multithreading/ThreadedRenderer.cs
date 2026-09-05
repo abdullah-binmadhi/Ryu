@@ -24,7 +24,7 @@ namespace Ryujinx.Graphics.GAL.Multithreading
     {
         private const int SpanPoolBytes = 8 * 1024 * 1024;
         private const int MaxRefsPerCommand = 2;
-        private const int QueueCount = 10000;
+        private const int QueueCount = 30000;
 
         private readonly int _elementSize;
         private readonly IRenderer _baseRenderer;
@@ -156,6 +156,8 @@ namespace Ryujinx.Graphics.GAL.Multithreading
 
                     // Run the command.
 
+                    ThreadedRendererStats.RecordCommand(command[^1]);
+
                     CommandHelper.RunCommand(command, this, _baseRenderer);
 
                     if (Interlocked.CompareExchange(ref _invokePtr, -1, commandPtr) == commandPtr)
@@ -187,6 +189,7 @@ namespace Ryujinx.Graphics.GAL.Multithreading
                 // If incrementing the producer pointer would overflow, we need to wait.
                 // _consumerPtr can only move forward, so there's no race to worry about here.
 
+                ThreadedRendererStats.RecordQueueFullSleep();
                 Thread.Sleep(1);
             }
 
@@ -250,12 +253,16 @@ namespace Ryujinx.Graphics.GAL.Multithreading
             QueueCommand();
 
             // Wait for the command to complete.
+            long waitStart = Stopwatch.GetTimestamp();
             _invokeRun.Wait();
+            ThreadedRendererStats.RecordInvokeWait(Stopwatch.GetTimestamp() - waitStart);
         }
 
         internal void WaitForFrame()
         {
+            long waitStart = Stopwatch.GetTimestamp();
             _frameComplete.WaitOne();
+            ThreadedRendererStats.RecordFrameWait(Stopwatch.GetTimestamp() - waitStart);
         }
 
         internal void SignalFrame()
@@ -488,9 +495,13 @@ namespace Ryujinx.Graphics.GAL.Multithreading
 
         public void WaitSync(ulong id)
         {
+            long waitStart = Stopwatch.GetTimestamp();
+
             Sync.WaitSyncAvailability(id);
 
             _baseRenderer.WaitSync(id);
+
+            ThreadedRendererStats.RecordSyncWait(Stopwatch.GetTimestamp() - waitStart);
         }
 
         private void Interrupt(Action action)

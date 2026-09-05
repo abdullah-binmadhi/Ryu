@@ -31,6 +31,28 @@ namespace Ryujinx.Graphics.Vulkan
 
         private bool _initialized;
 
+        /// <summary>
+        /// Maximum push descriptor count used on MoltenVK. The 16 default is a workaround
+        /// for vertex corruption ("vertex explosions") seen on some MoltenVK builds.
+        /// Texture-heavy titles such as NieR:Automata benefit hugely from a higher limit:
+        /// shaders exceeding it fall back to per-binding descriptor set updates, which
+        /// floods the backend with vkUpdateDescriptorSets calls (~110k/s in the ruins).
+        /// Override with RYU_MVK_MAX_PUSH_DESCRIPTORS (16-96).
+        /// </summary>
+        private static readonly uint MoltenVkMaxPushDescriptors = GetMoltenVkMaxPushDescriptors();
+
+        private static uint GetMoltenVkMaxPushDescriptors()
+        {
+            string value = Environment.GetEnvironmentVariable("RYU_MVK_MAX_PUSH_DESCRIPTORS");
+
+            if (int.TryParse(value, out int result) && result is >= 16 and <= 96)
+            {
+                return (uint)result;
+            }
+
+            return 16;
+        }
+
         public uint ProgramCount { get; set; } = 0;
 
         internal FormatCapabilities FormatCapabilities { get; private set; }
@@ -452,7 +474,7 @@ namespace Ryujinx.Graphics.Vulkan
                 features2.Features.MultiViewport && !(IsMoltenVk && Vendor == Vendor.Amd), // Workaround for AMD on MoltenVK issue
                 featuresRobustness2.NullDescriptor || IsMoltenVk,
                 supportsPushDescriptors,
-                IsMoltenVk ? 16 : propertiesPushDescriptor.MaxPushDescriptors, // Prevents vertex explosions on MoltenVK.
+                IsMoltenVk ? MoltenVkMaxPushDescriptors : propertiesPushDescriptor.MaxPushDescriptors, // Prevents vertex explosions on MoltenVK.
                 featuresPrimitiveTopologyListRestart.PrimitiveTopologyListRestart,
                 featuresPrimitiveTopologyListRestart.PrimitiveTopologyPatchListRestart,
                 supportsTransformFeedback,

@@ -1,6 +1,6 @@
 namespace Ryujinx.Graphics.GAL.Multithreading
 {
-    enum CommandType : byte
+    public enum CommandType : byte
     {
         Action,
         CreateBufferAccess,

@@ -83,10 +83,6 @@ namespace Ryujinx.Cpu.AppleHv
         private readonly ExceptionCallbacks _exceptionCallbacks;
         private int _interruptRequested;
 
-        // GPU Sync control
-        private int _syncCounter;
-        private int _strongSyncCounter;
-
         public HvExecutionContext(ICounter counter, ExceptionCallbacks exceptionCallbacks)
         {
             _counter = counter;
@@ -163,9 +159,6 @@ namespace Ryujinx.Cpu.AppleHv
             HvVcpu vcpu = HvVcpuPool.Instance.Create(memoryManager.AddressSpace, _shadowContext, SwapContext);
             HvApi.hv_vcpu_set_reg(vcpu.Handle, HvReg.PC, address).ThrowOnError();
 
-            _syncCounter = 0;
-            _strongSyncCounter = 0;
-
             while (Running)
             {
                 if (Interlocked.CompareExchange(ref _shouldStep, 0, 1) == 1)
@@ -184,14 +177,9 @@ namespace Ryujinx.Cpu.AppleHv
                     HvApi.hv_vcpu_set_sys_reg(vcpu.Handle, HvSysReg.MDSCR_EL1, 1);
                 }
 
-                // Adaptive GPU synchronization to prevent 0 FPS
-                if (++_syncCounter % 12 == 0)
-                {
-                    TryGpuSync();
-                    _syncCounter = 0;
-                }
-
+                long runStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 HvApi.hv_vcpu_run(vcpu.Handle).ThrowOnError();
+                HvExecutionStats.RecordRun(System.Diagnostics.Stopwatch.GetTimestamp() - runStart);
 
                 HvExitReason reason = vcpu.ExitInfo->Reason;
 
@@ -232,27 +220,9 @@ namespace Ryujinx.Cpu.AppleHv
             HvVcpuPool.Instance.Destroy(vcpu, SwapContext);
         }
 
-        // TryGpuSync() is called periodically in the main Execute() loop. The "syncing" value can be tuned based on gameplay results.
-        // This feature it to be followed-up and further completed in a future PR.
-        private void TryGpuSync()
-        {
-            try
-            {
-                Thread.Yield();
-
-                if (++_strongSyncCounter % 6 == 0)
-                {
-                    Thread.Yield();
-                }
-            }
-            catch (Exception ex)
-            {
-                if (_strongSyncCounter % 100 == 0)
-                {
-                    Logger.Warning?.Print(LogClass.Gpu, $"[AppleHv] GPU sync issue: {ex.Message}");
-                }
-            }
-        }
+        // TryGpuSync() has been removed: the previous Thread.Yield-based "adaptive
+        // GPU synchronization" hack injected scheduler yields into the vCPU run
+        // loop, adding per-core overhead without measurable benefit.
 
         private ulong SynchronousException(HvMemoryManager memoryManager, ref HvVcpu vcpu)
         {

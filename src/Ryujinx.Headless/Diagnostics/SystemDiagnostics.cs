@@ -33,10 +33,10 @@ namespace Ryujinx.Headless.Diagnostics
             Console.ResetColor();
 
             int passed = 0;
-            int total = 8;
+            int total = 15;
 
             // 1. CPU & Architecture Diagnostic
-            Console.Write("\n[1/8] Testing CPU & Architecture... ");
+            Console.Write("\n[1/15] Testing CPU & Architecture... ");
             if (TestCpuAndHypervisor())
             {
                 PrintSuccess("PASS (Apple Silicon ARM64 / Multi-Core Ready)");
@@ -44,12 +44,11 @@ namespace Ryujinx.Headless.Diagnostics
             }
             else
             {
-                PrintWarning("NOTICE (Host CPU JIT Active)");
-                passed++;
+                PrintWarning("NOTICE (Host CPU/JIT capability below preferred minimum)");
             }
 
             // 2. Memory Subsystem Diagnostic
-            Console.Write("[2/8] Testing Virtual Memory Subsystem (HostMappedUnsafe)... ");
+            Console.Write("[2/15] Testing Virtual Memory Subsystem (HostMappedUnsafe)... ");
             if (TestMemorySubsystem())
             {
                 PrintSuccess("PASS (4GB DRAM Reservation OK)");
@@ -61,7 +60,7 @@ namespace Ryujinx.Headless.Diagnostics
             }
 
             // 3. QoS Thread Scheduling & Power Management
-            Console.Write("[3/8] Testing Darwin QoS P-Core Pinning & Latency Critical Lock... ");
+            Console.Write("[3/15] Testing Darwin QoS P-Core Pinning & Latency Critical Lock... ");
             if (TestQosAndPower())
             {
                 PrintSuccess("PASS (QoS User-Interactive & App Nap Inhibit Active)");
@@ -69,12 +68,11 @@ namespace Ryujinx.Headless.Diagnostics
             }
             else
             {
-                PrintWarning("NOTICE (Host Schedulers OK)");
-                passed++;
+                PrintWarning("NOTICE (Darwin QoS or latency activity unavailable)");
             }
 
             // 4. Vulkan & MoltenVK Graphics Stack
-            Console.Write("[4/8] Testing Vulkan / MoltenVK Metal Rendering Driver... ");
+            Console.Write("[4/15] Testing Vulkan / MoltenVK Metal Rendering Driver... ");
             if (TestVulkanDriver())
             {
                 PrintSuccess("PASS (MoltenVK Prefill=3, Async Queues OK)");
@@ -86,7 +84,7 @@ namespace Ryujinx.Headless.Diagnostics
             }
 
             // 5. Audio & Input Engine (SDL3)
-            Console.Write("[5/8] Testing SDL3 Audio & Input Subsystems... ");
+            Console.Write("[5/15] Testing SDL3 Audio & Input Subsystems... ");
             if (TestAudioAndInput(out string audioMsg))
             {
                 PrintSuccess($"PASS ({audioMsg})");
@@ -98,7 +96,7 @@ namespace Ryujinx.Headless.Diagnostics
             }
 
             // 6. Visual Window & In-Game OSD HUD Diagnostic
-            Console.Write("[6/8] Testing Visual Window & In-Game OSD HUD Overlay (spawning 2s test window)... ");
+            Console.Write("[6/15] Testing Visual Window & In-Game OSD HUD Overlay (spawning 2s test window)... ");
             if (TestVisualWindowAndHud(out string hudMsg))
             {
                 PrintSuccess($"PASS ({hudMsg})");
@@ -110,7 +108,7 @@ namespace Ryujinx.Headless.Diagnostics
             }
 
             // 7. Native Metal Command Pipeline (M0)
-            Console.Write("[7/8] Testing Native Metal Command Pipeline (device/queue/encoder/submit)... ");
+            Console.Write("[7/15] Testing Native Metal Command Pipeline (device/queue/encoder/submit)... ");
             if (TestNativeMetal(out string metalMsg))
             {
                 PrintSuccess($"PASS ({metalMsg})");
@@ -122,7 +120,7 @@ namespace Ryujinx.Headless.Diagnostics
             }
 
             // 8. Native Metal Presentation (M2)
-            Console.Write("[8/8] Testing Native Metal Presentation (CAMetalLayer drawable + present)... ");
+            Console.Write("[8/15] Testing Native Metal Presentation (CAMetalLayer drawable + present)... ");
             if (TestMetalPresentation(out string presentMsg))
             {
                 PrintSuccess($"PASS ({presentMsg})");
@@ -133,16 +131,103 @@ namespace Ryujinx.Headless.Diagnostics
                 PrintError($"FAIL ({presentMsg})");
             }
 
+            // 9. Block-Compressed Textures (ASTC/BC) & Format Blitter Pipeline
+            Console.Write("[9/15] Testing Block-Compressed Textures (ASTC/BC) & Format Blitter Pipeline... ");
+            if (OperatingSystem.IsMacOS() && Ryujinx.Graphics.Metal.MetalDiagnostics.TestFormatBlitAndCompression(out string blitMsg))
+            {
+                PrintSuccess($"PASS ({blitMsg})");
+                passed++;
+            }
+            else
+            {
+                PrintError($"FAIL");
+            }
+
+            // 10. Multi-Target Render Passes (MRT) & Depth Stencil Pipeline
+            Console.Write("[10/15] Testing Multi-Target Render Passes (MRT) & Depth Pipeline... ");
+            if (OperatingSystem.IsMacOS() && Ryujinx.Graphics.Metal.MetalDiagnostics.TestMultiTargetRenderPass(out string mrtMsg))
+            {
+                PrintSuccess($"PASS ({mrtMsg})");
+                passed++;
+            }
+            else
+            {
+                PrintError($"FAIL");
+            }
+
+            // 11. End-to-End GUI RenderLoop Pipeline & Swapchain Readback
+            Console.Write("[11/15] Testing End-to-End GUI RenderLoop Pipeline & Swapchain Readback... ");
+            if (OperatingSystem.IsMacOS() && Ryujinx.Graphics.Metal.MetalDiagnostics.TestGuiRenderLoopSimulation(out string guiMsg))
+            {
+                PrintSuccess($"PASS ({guiMsg})");
+                passed++;
+            }
+            else
+            {
+                PrintError($"FAIL");
+            }
+
+            // 12. NVDEC / YUV Video Surface Decode & Blit Presentation
+            Console.Write("[12/15] Testing NVDEC / YUV Video Surface Decode & Blit Presentation... ");
+            if (OperatingSystem.IsMacOS() && Ryujinx.Graphics.Metal.MetalDiagnostics.TestVideoNvdecBlit(out string nvdecMsg))
+            {
+                PrintSuccess($"PASS ({nvdecMsg})");
+                passed++;
+            }
+            else
+            {
+                PrintError($"FAIL");
+            }
+
+            // 13. Static Buffer Injection Ground Truth (16KB Page-Aligned UMA Assertion)
+            Console.Write("[13/15] Testing Static Buffer Injection Ground Truth (16KB Page-Aligned UMA Assertion)... ");
+            string staticMsg = string.Empty;
+            if (OperatingSystem.IsMacOS() && Ryujinx.Graphics.Metal.MetalDiagnostics.TestStaticBufferInjectionGroundTruth(out staticMsg))
+            {
+                PrintSuccess($"PASS ({staticMsg})");
+                passed++;
+            }
+            else
+            {
+                PrintError($"FAIL ({staticMsg})");
+            }
+
+            // 14. Blit Transfer Copy Isolation & Fence Synchronization
+            Console.Write("[14/15] Testing Blit Transfer Copy Isolation & Fence Synchronization... ");
+            string isolateMsg = string.Empty;
+            if (OperatingSystem.IsMacOS() && Ryujinx.Graphics.Metal.MetalDiagnostics.TestBlitTransferCopyIsolation(out isolateMsg))
+            {
+                PrintSuccess($"PASS ({isolateMsg})");
+                passed++;
+            }
+            else
+            {
+                PrintError($"FAIL ({isolateMsg})");
+            }
+
+            // 15. Native Metal game-render validation (state/clip/depth/texture diagnostics)
+            Console.Write("[15/15] Testing Native Metal Game Render State & Debug Validation... ");
+            string gameRenderMsg = OperatingSystem.IsMacOS() ? string.Empty : "not applicable on non-macOS";
+            if (!OperatingSystem.IsMacOS() || Ryujinx.Graphics.Metal.MetalDiagnostics.TestGameRenderValidation(out gameRenderMsg))
+            {
+                PrintSuccess($"PASS ({gameRenderMsg})");
+                passed++;
+            }
+            else
+            {
+                PrintError($"FAIL ({gameRenderMsg})");
+            }
+
             Console.WriteLine("\n══════════════════════════════════════════════════════════════════════════════");
             if (passed == total)
             {
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($" Diagnostics Complete: ALL {passed}/{total} Subsystems Fully Operational and Verified.");
+                Console.WriteLine($" Diagnostics Complete: ALL {passed}/{total} diagnostic checks passed. Game boot/render validation still requires a real title launch.");
             }
             else
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($" Diagnostics Complete: {passed}/{total} Subsystems Operational.");
+                Console.WriteLine($" Diagnostics Complete: {passed}/{total} diagnostic checks passed. Game boot/render validation still requires a real title launch.");
             }
             Console.ResetColor();
             Console.WriteLine("══════════════════════════════════════════════════════════════════════════════\n");
@@ -225,7 +310,11 @@ namespace Ryujinx.Headless.Diagnostics
         {
             try
             {
-                SDL_Init(SDL_InitFlags.SDL_INIT_VIDEO);
+                if (!SDL_Init(SDL_InitFlags.SDL_INIT_VIDEO))
+                {
+                    message = SDL_GetError() ?? "SDL video initialization failed";
+                    return false;
+                }
 
                 SDL_WindowFlags flags = SDL_WindowFlags.SDL_WINDOW_HIGH_PIXEL_DENSITY;
                 SDL_Window* window = SDL_CreateWindow("Ryu Diagnostics HUD Test", 640, 360, flags);
@@ -515,6 +604,7 @@ fragment float4 fs_main(VOut in [[stage_in]])
                 Ryujinx.Graphics.Metal.Interop.MetalBindings.Release(library);
             }
         }
+
 
         private static void PrintSuccess(string text)
         {

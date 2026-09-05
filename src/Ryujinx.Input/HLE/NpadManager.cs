@@ -43,6 +43,9 @@ namespace Ryujinx.Input.HLE
         private bool _enableMouse;
         private Switch _device;
         
+        private int _autoInputFrame;
+        private static readonly bool AutoInputEnabled = Environment.GetEnvironmentVariable("RYU_AUTO_INPUT") == "1";
+        
         private readonly List<GamepadInput> _hleInputStates = [];
         private readonly List<SixAxisInput> _hleMotionStates = new(NpadDevices.MaxControllers);
 
@@ -293,6 +296,7 @@ namespace Ryujinx.Input.HLE
             {
                 PlayerIndex = inputConfig.PlayerIndex,
                 EnableDynamicInputSwap = inputConfig.EnableDynamicGamepadSwap,
+                Devices = new List<AssignedInputDevice>(4),
             };
 
             AssignedInputDevice primaryDevice = PlayerInputAssignmentHelper.CreatePrimaryDevice(inputConfig);
@@ -467,6 +471,76 @@ namespace Ryujinx.Input.HLE
                 if (_inputUpdateBlockCount == 0 && _enableKeyboard)
                 {
                     hleKeyboardInput = NpadController.GetHLEKeyboardInput(_keyboardDriver);
+                }
+
+                if (AutoInputEnabled && _hleInputStates.Count > 0)
+                {
+                    _autoInputFrame++;
+                    GamepadInput p1 = _hleInputStates[0];
+
+                    bool isBootPhase = _autoInputFrame < 1800; // First ~60 seconds at 30 FPS
+
+                    if (isBootPhase)
+                    {
+                        // Dedicated boot/menu progression:
+                        // Pulse 'A' (10 frames down, 15 frames up) to advance through notices, brightness, sound, title screen, and confirm 'New Game' -> 'Normal' -> 'Yes'
+                        if ((_autoInputFrame % 25) < 10)
+                        {
+                            p1.Buttons |= ControllerKeys.A;
+                        }
+
+                        // Every 300 frames, pulse Plus for 5 frames to skip intro logos if skippable
+                        if ((_autoInputFrame % 300) < 5)
+                        {
+                            p1.Buttons |= ControllerKeys.Plus;
+                        }
+                    }
+                    else
+                    {
+                        // In-game 3D exploration and combat cycle (300 frames = 10s at 30 FPS):
+                        int cycle = (_autoInputFrame - 1800) % 300;
+
+                        // Fire pod continuously during gameplay
+                        p1.Buttons |= ControllerKeys.Zr;
+
+                        // Attack / Confirm with A / X
+                        if (cycle % 20 < 10)
+                        {
+                            p1.Buttons |= ControllerKeys.A | ControllerKeys.X;
+                        }
+
+                        if (cycle < 100)
+                        {
+                            // Move forward (Left stick UP)
+                            p1.LStick = new JoystickPosition { Dx = 0, Dy = 25000 };
+                        }
+                        else if (cycle < 150)
+                        {
+                            // Move right (Left stick RIGHT)
+                            p1.LStick = new JoystickPosition { Dx = 25000, Dy = 0 };
+                        }
+                        else if (cycle < 200)
+                        {
+                            // Evade (B) + Move left
+                            p1.Buttons |= ControllerKeys.B;
+                            p1.LStick = new JoystickPosition { Dx = -25000, Dy = 0 };
+                        }
+                        else
+                        {
+                            // Look around with Right Stick
+                            p1.RStick = new JoystickPosition { Dx = 20000, Dy = 0 };
+                        }
+                    }
+
+                    // Synchronize virtual stick direction buttons (RStickUp, LStickDown, etc.)
+                    p1.Buttons |= _device.Hid.UpdateStickButtons(p1.LStick, p1.RStick);
+
+                    if (_autoInputFrame % 300 == 1)
+                    {
+                        Logger.Notice.Print(LogClass.Hid, $"[AUTO_INPUT] Frame={_autoInputFrame} Phase={(isBootPhase ? "Boot/MenuNav (A-Pulse)" : "In-Game 3D")} Buttons={p1.Buttons} LStick=({p1.LStick.Dx},{p1.LStick.Dy})");
+                    }
+
+                    _hleInputStates[0] = p1;
                 }
 
                 _device.Hid.Npads.Update(_hleInputStates);

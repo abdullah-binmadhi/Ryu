@@ -64,10 +64,19 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static partial void m4_msgSend_void(nint receiver, nint selector, nuint arg1, nuint arg2, nuint arg3);
 
         [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
+        public static partial void m4_msgSend_void(nint receiver, nint selector, nuint arg1, nuint arg2, nuint arg3, nuint arg4);
+
+        [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
         public static partial void m4_msgSend_void(nint receiver, nint selector, nint arg1, nuint arg2, nuint arg3);
 
         [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
         public static partial void m4_msgSend_void(nint receiver, nint selector, nint arg1, ulong arg2, nint arg3);
+
+        // drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferLength:instanceCount:
+        // indexBuffer is an MTLGPUAddress (ulong); the M4 indexed draw binds the index buffer by
+        // GPU address + length rather than by MTLBuffer object + offset.
+        [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
+        public static partial void m4_msgSend_void(nint receiver, nint selector, nuint arg1, nuint arg2, nuint arg3, ulong arg4, nuint arg5, nuint arg6);
 
         // commit:count: — first arg is a C array of MTL4CommandBuffer ptrs
         [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
@@ -102,12 +111,14 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelNewCommandAllocator = MetalBindings.sel_registerName("newCommandAllocator");
         public static readonly nint SelNewArgumentTableWithDescriptorError = MetalBindings.sel_registerName("newArgumentTableWithDescriptor:error:");
         public static readonly nint SelNewCompilerWithDescriptorError = MetalBindings.sel_registerName("newCompilerWithDescriptor:error:");
+        public static readonly nint SelNewResidencySetWithDescriptorError = MetalBindings.sel_registerName("newResidencySetWithDescriptor:error:");
         public static readonly nint SelNewPipelineDataSetSerializerWithDescriptor = MetalBindings.sel_registerName("newPipelineDataSetSerializerWithDescriptor:");
         public static readonly nint SelNewArchiveWithURLError = MetalBindings.sel_registerName("newArchiveWithURL:error:");
 
         // ---- MTL4CommandQueue ----
         public static readonly nint SelCommitCount = MetalBindings.sel_registerName("commit:count:");
         public static readonly nint SelCommitCountOptions = MetalBindings.sel_registerName("commit:count:options:");
+        public static readonly nint SelAddResidencySetsCount = MetalBindings.sel_registerName("addResidencySets:count:");
 
         // ---- MTL4ArgumentTableDescriptor / MTL4ArgumentTable ----
         public static readonly nint SelNewBufferWithBytesLengthOptions = MetalBindings.sel_registerName("newBufferWithBytes:length:options:");
@@ -118,6 +129,12 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelSetResourceAtBufferIndex = MetalBindings.sel_registerName("setResource:atBufferIndex:");
         public static readonly nint SelSetTextureAtIndex = MetalBindings.sel_registerName("setTexture:atIndex:");
         public static readonly nint SelSetSamplerStateAtIndex = MetalBindings.sel_registerName("setSamplerState:atIndex:");
+
+        // ---- MTLResidencySet ----
+        public static readonly nint SelAddAllocation = MetalBindings.sel_registerName("addAllocation:");
+        public static readonly nint SelRemoveAllocation = MetalBindings.sel_registerName("removeAllocation:");
+        public static readonly nint SelCommitResidencySet = MetalBindings.sel_registerName("commit");
+        public static readonly nint SelRequestResidency = MetalBindings.sel_registerName("requestResidency");
 
         // ---- MTL4Compiler / descriptors ----
         public static readonly nint SelNewLibraryWithDescriptorError = MetalBindings.sel_registerName("newLibraryWithDescriptor:error:");
@@ -141,7 +158,9 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelRenderCommandEncoderWithDescriptorOptions = MetalBindings.sel_registerName("renderCommandEncoderWithDescriptor:options:");
         public static readonly nint SelSetRenderPipelineState = MetalBindings.sel_registerName("setRenderPipelineState:");
         public static readonly nint SelSetArgumentTableAtStages = MetalBindings.sel_registerName("setArgumentTable:atStages:");
+        public static readonly nint SelSetArgumentTableCompute = MetalBindings.sel_registerName("setArgumentTable:");
         public static readonly nint SelDrawPrimitivesVertexStartVertexCount = MetalBindings.sel_registerName("drawPrimitives:vertexStart:vertexCount:");
+        public static readonly nint SelDrawIndexedPrimitivesIndexCountIndexTypeIndexBufferLengthInstanceCount = MetalBindings.sel_registerName("drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferLength:instanceCount:");
 
         // ---- commit feedback ----
         public static readonly nint SelAddFeedbackHandler = MetalBindings.sel_registerName("addFeedbackHandler:");
@@ -154,8 +173,9 @@ namespace Ryujinx.Graphics.Metal.Interop
         public static readonly nint SelSignalEventValue = MetalBindings.sel_registerName("signalEvent:value:");
         public static readonly nint SelWaitUntilSignaledValueTimeoutMS = MetalBindings.sel_registerName("waitUntilSignaledValue:timeoutMS:");
 
-        // ---- render pass descriptor / attachment ----
+        // ---- MTL4 render pass descriptor / attachment ----
         public static readonly nint SelColorAttachments = MetalBindings.sel_registerName("colorAttachments");
+        public static readonly nint SelSetBlendingState = MetalBindings.sel_registerName("setBlendingState:");
         public static readonly nint SelObjectAtIndexedSubscript = MetalBindings.sel_registerName("objectAtIndexedSubscript:");
         public static readonly nint SelSetPixelFormat = MetalBindings.sel_registerName("setPixelFormat:");
         public static readonly nint SelSetTexture = MetalBindings.sel_registerName("setTexture:");
@@ -192,6 +212,10 @@ namespace Ryujinx.Graphics.Metal.Interop
         public const ulong M4RenderEncoderOptionNone       = 0;
         public const ulong M4RenderEncoderOptionSuspending = 1UL << 0;
         public const ulong M4RenderEncoderOptionResuming   = 1UL << 1;
+
+        // MTL4BlendState
+        public const ulong MTL4BlendStateDisabled = 0;
+        public const ulong MTL4BlendStateEnabled = 1;
 
         // MTLLoadAction / MTLStoreAction
         public const ulong MTLLoadActionClear = 2;

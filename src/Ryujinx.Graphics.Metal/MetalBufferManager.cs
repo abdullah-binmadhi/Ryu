@@ -12,12 +12,14 @@ namespace Ryujinx.Graphics.Metal
     public class MetalBufferManager : IDisposable
     {
         private readonly nint _device;
+        private readonly Metal4CommandQueue _m4Queue;
         private readonly ConcurrentDictionary<int, nint> _buffers = new();
         private int _nextHandle = 1;
 
-        public MetalBufferManager(nint device)
+        public MetalBufferManager(nint device, Metal4CommandQueue m4Queue)
         {
             _device = device;
+            _m4Queue = m4Queue;
         }
 
         private static BufferHandle CreateHandle(int id)
@@ -39,6 +41,7 @@ namespace Ryujinx.Graphics.Metal
                 (nuint)size,
                 (nuint)(MetalBindings.MTLResourceStorageModeShared | MetalBindings.MTLResourceCPUCacheModeDefaultCache));
 
+            _m4Queue.AddResidencyResource(buffer);
             int handle = Interlocked.Increment(ref _nextHandle);
             _buffers[handle] = buffer;
             return CreateHandle(handle);
@@ -54,6 +57,7 @@ namespace Ryujinx.Graphics.Metal
                 (nuint)(MetalBindings.MTLResourceStorageModeShared | MetalBindings.MTLResourceCPUCacheModeDefaultCache),
                 nint.Zero);
 
+            _m4Queue.AddResidencyResource(buffer);
             int handle = Interlocked.Increment(ref _nextHandle);
             _buffers[handle] = buffer;
             return CreateHandle(handle);

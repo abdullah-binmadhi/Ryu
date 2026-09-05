@@ -1,9 +1,16 @@
 # Architectural Specification: Native Apple Silicon Headless Emulation Engine (Ryu)
 
+> **Documentation Hierarchy & Source of Truth:**
+> - For immediate execution phases and live operational gates: see **[Native Metal Execution Roadmap](docs/native-metal-execution-roadmap.md)** (`docs/native-metal-execution-roadmap.md`).
+> - For shader compiler IR specifications and non-negotiable architectural rules: see **[Native Metal 4 Engine Plan](docs/native-engine-plan.md)** (`docs/native-engine-plan.md`).
+> - For Metal 4 binding and implementation reference: see **[Complete Native Metal Context](docs/full-metal.md)** (`docs/full-metal.md`).
+
+---
+
 ## 1. Executive Summary & Architectural Overview
 This document defines the engineering architecture for transforming the cross-platform Ryubing / Ryujinx codebase into a terminal-first, hardware-accelerated Nintendo Switch emulation core optimized specifically for Apple Silicon (M-series) SoCs across all generations (M1 through M5/M6+).
 
-Rather than rebuilding the guest OS emulation stack from scratch, this initiative executes an **in-place modular refactoring**. The system preserves high-level guest Horizon OS (HOS) service emulation, ARM64 CPU instruction execution, and title compatibility layers, while systematically replacing generic .NET runtime abstractions, bloated desktop UI frameworks (Avalonia/XAML/Skia), and cross-platform middle-layers with a lightweight **Terminal/CLI runner (Astris-style)**, bare-metal Darwin kernel primitives (Mach QoS, `CVDisplayLink`), low-latency SDL3 Apple backend hooks, optimized MoltenVK Metal 3 TBDR pipelines, and native Apple frameworks (`MetalFX`, `Accelerate/vDSP`, `AdvSimd` NEON, `AppleHv`).
+Rather than rebuilding the guest OS emulation stack from scratch, this initiative executes an **in-place modular refactoring**. The system preserves high-level guest Horizon OS (HOS) service emulation, ARM64 CPU instruction execution, and title compatibility layers, while systematically replacing generic .NET runtime abstractions, bloated desktop UI frameworks (Avalonia/XAML/Skia), and cross-platform translation middle-layers (Vulkan/MoltenVK) with a lightweight **Terminal/CLI runner (Astris-style)**, bare-metal Darwin kernel primitives (Mach QoS, `CVDisplayLink`), low-latency SDL3 Apple backend hooks, a **native Apple Metal 4 GAL backend** (`MTL4ArgumentTable` zero-copy bindings + multi-threaded P-core command encoding) paired with intentional Metal 3 presentation/format-blit hybrid pipelines, and native Apple frameworks (`MetalFX`, `Accelerate/vDSP`, `AdvSimd` NEON, `AppleHv`).
 
 ```
 +-----------------------------------------------------------------------------------------+
@@ -22,10 +29,10 @@ Rather than rebuilding the guest OS emulation stack from scratch, this initiativ
 +-----------------------------------------------------------------------------------------+
 |                        Surgically Refactored Hardware Subsystems                        |
 |  ┌─────────────────────────────────┐   ┌──────────────────────────────────────────────┐ |
-|  │ Unified Memory & Purgeable RAM  │   │ Metal 3 & MetalFX Presentation Engine        │ |
-|  │ (Hybrid 4KB/16KB Tracking,      │   │ (MoltenVK TBDR Tuning, MetalFX Spatial/DRS,  │ |
-|  │ Zero-Copy Texture Aliasing,     │   │ Pixel Format Pre-Pass, MTLBinaryArchive,     │ |
-|  │ Mach VM_FLAGS_PURGABLE Caches)  │   │ Hardware ASTC Passthrough)                   │ |
+|  │ Unified Memory & Purgeable RAM  │   │ Native Metal 4 & Metal 3 Hybrid Engine       │ |
+|  │ (Hybrid 4KB/16KB Tracking,      │   │ (Direct Metal 4 GAL, MTL4ArgumentTable       │ |
+|  │ Zero-Copy Texture Aliasing,     │   │  Zero-Copy, Multi-Core P-Core Encoding,      │ |
+|  │ Mach VM_FLAGS_PURGABLE Caches)  │   │  MetalFX Spatial/DRS, Hardware ASTC)         │ |
 |  └─────────────────────────────────┘   └──────────────────────────────────────────────┘ |
 |  ┌─────────────────────────────────┐   ┌──────────────────────────────────────────────┐ |
 |  │ Mach QoS & Timing Engine        │   │ Vectorized Audio DSP & Input Engine          │ |
@@ -50,7 +57,7 @@ Rather than rebuilding the guest OS emulation stack from scratch, this initiativ
 
 Rather than running heavy GUI window compositing loops, the emulator operates with a **dual-surface decoupled model**:
 1. **Interactive Terminal (CLI / TUI):** Handles game launching, library indexing, configuration, real-time telemetry HUD, and process lifecycle management.
-2. **Dedicated Game Surface:** A minimal, borderless `CAMetalLayer` window rendering the game viewport directly via Metal/MetalFX with zero desktop UI overhead.
+2. **Dedicated Game Surface:** A minimal, borderless `CAMetalLayer` window rendering the game viewport directly via Metal 4/Metal 3/MetalFX with zero desktop UI overhead.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
@@ -76,7 +83,7 @@ Rather than running heavy GUI window compositing loops, the emulator operates wi
 
 ## 3. Apple Silicon Generational Scaling Matrix (M1 through M5/M6+)
 
-Because our refactoring interfaces directly with **Darwin Mach kernel primitives, POSIX `mmap`, Metal 3, MoltenVK, and the Accelerate framework**, it is **architecturally forward- and backward-compatible** across the entire Apple Silicon family.
+Because our refactoring interfaces directly with **Darwin Mach kernel primitives, POSIX `mmap`, Metal 4 & Metal 3, and the Accelerate framework**, it is **architecturally forward- and backward-compatible** across the entire Apple Silicon family.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
@@ -98,14 +105,14 @@ Because our refactoring interfaces directly with **Darwin Mach kernel primitives
 │     ANE offloads MetalFX spatial upscaling with virtually 0% GPU penalty.               │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │ [ M4 Family (M4 / M4 Pro / M4 Max) ]                                                    │
-│   - Architecture: ARMv9.2-A + SME (Scalable Matrix Extension) + 38 TOPS ANE             │
-│   - Benefit: 120 GB/s base bandwidth; advanced ANE runs temporal MetalFX effortlessly; │
-│     native 1440p / 4K presentation with pure 60 FPS lock.                               │
+│   - Architecture: ARMv9.2-A + SME (Scalable Matrix Extension) + Metal 4 API + 38 TOPS ANE│
+│   - Benefit: 120 GB/s base bandwidth; native MTL4ArgumentTable support, multi-core      │
+│     command encoding pools, pure hardware zero-copy binding, and 60 FPS lock.           │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │ [ Future M5 & M6 Architectures ]                                                        │
 │   - Architecture: Advanced nodes, enhanced vector execution, higher UMA bandwidth.      │
-│   - Benefit: 100% forward-compatible. No deprecated APIs, no x86 translation thunks,    │
-│     and direct adherence to macOS Darwin kernel and Metal standards.                    │
+│   - Benefit: 100% forward-compatible. No deprecated APIs, no intermediate translation   │
+│     tax, and direct adherence to macOS Darwin kernel and native Metal standards.        │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -113,18 +120,18 @@ Because our refactoring interfaces directly with **Darwin Mach kernel primitives
 
 ## 4. Technical Grounding & Reality Matrix (Current Codebase vs Target State)
 
-| Subsystem | Existing Codebase State | Target Architectural Enhancement |
+| Subsystem | Upstream Ryujinx Architecture | Ryu Native Apple Silicon Target |
 | :--- | :--- | :--- |
-| **CPU Execution Core** | Contains both **`ARMeilleure` JIT** and **`Ryujinx.Cpu.AppleHv`** (Hypervisor). | Implement a **Dual-Engine Selector**: Bare-metal `AppleHv` for full-speed 64-bit native execution + optimized `ARMeilleure` ARM64 JIT with FPCR register sync for 32-bit and mods. |
-| **Memory Allocation & Tracking** | `MemoryManagementUnix.cs` uses `mmap` with 16KB Darwin pages; hardware `mprotect` traps on 4KB sub-pages. | Implement **Hybrid Page Tracking**: 4KB software bitmask table for dirty tracking + 16KB host physical alignment; zero-copy texture buffer aliasing with Metal lifecycle ref-counting. |
+| **GUI Framework** | Avalonia UI + Skia / XAML desktop windowing (~300MB idle RAM, heavy GC allocations). | **Astris-Style Headless Terminal CLI** + borderless `CAMetalLayer` native viewport with zero managed UI overhead. |
+| **Memory Tracking** | 4KB coarse memory tracking running inside 16KB macOS pages via software mprotect page faults. | **HostMappedUnsafe (Zero-Copy UMA)** with fine-grained 4KB dirty bitmask tracking aligned to 16KB Darwin virtual memory. |
 | **Cache Management** | Managed heap dictionaries and unmanaged RAM pools without OS memory eviction awareness. | Integrate **Darwin Mach Purgeable Memory (`VM_FLAGS_PURGABLE`)** for texture and shader caches to prevent macOS memory compression/SSD swap wear. |
 | **Headless Frontend** | Headless mode was folded into the main project (`Ryujinx --no-gui`), pulling full Avalonia/Skia dependencies. | Extract a standalone, decoupled **`Ryujinx.Headless`** target with zero Avalonia/XAML dependencies, cutting ~300MB idle RAM and eliminating UI compositor overhead. |
 | **Synchronization** | Standard .NET `Monitor` locks (`lock(obj)`), `ConcurrentQueue`, and `AutoResetEvent`. | Implement **Cache-Line Padded (128-byte) Lockless SPSC Ring Buffers** with Acquire-Release memory barriers across GPU and audio submission queues. |
 | **Compilation Model** | Standard .NET JIT with runtime reflection in IPC dispatchers. | **Adjustment A:** Target **.NET 10 ReadyToRun (R2R) + Dynamic PGO** for instant startup and peak throughput, incrementally expanding Roslyn Source Generators toward NativeAOT. |
 | **Thread Scheduling** | Standard managed .NET thread pool with default OS scheduling. | Direct Darwin Mach QoS bindings (`pthread_set_qos_class_self_np`) locking JIT/Render to **Performance Cores (P-Cores)** and background workers to **Efficiency Cores (E-Cores)**. |
 | **Frame Timing** | .NET `Thread.Sleep` / spin-waiting loop in presentation. | Direct **`CVDisplayLink`** Darwin kernel synchronization using `[UnmanagedCallersOnly]` non-allocating callbacks, locking frame delivery with zero CPU spin-wait cycles. |
-| **Graphics & Textures** | Vulkan backend over MoltenVK. | **Addition 1:** Optimize **MoltenVK Metal 3 TBDR parameters** (async queue submit, prefill command buffers, hardware ASTC decode, lost-device resume) + **MetalFX Spatial Scaler** with format-validation pre-pass. |
-| **Shader Compilation** | Live SPIR-V to MSL translation causing frame hitching. | Deploy a **Pre-Emptive E-Core Shader Daemon** compiling SPIR-V to MSL in the background at `QOS_CLASS_BACKGROUND` with persistent `MTLBinaryArchive` caching. |
+| **Graphics & Textures** | MoltenVK translation layer (single-threaded bottleneck at 150-250k commands/sec, capping heavy scenes at ~20 FPS). | **Native Metal 4 GAL Backend (`Ryujinx.Graphics.Metal`)**: Zero-copy `MTL4ArgumentTable` bindings, multi-threaded P-core command encoding, block-free `MTLSharedEvent` sync, and Metal 3 presentation/format-blit hybrid pipelines. |
+| **Shader Compilation** | Live SPIR-V to MSL translation via `libspirv-cross.dylib` causing frame hitching and translation tax. | **Native C# MSL Generator (`CodeGen/Msl/`)**: Directly emit MSL from `StructuredProgramInfo`, verified via Golden Reference Diff Lock, backed by persistent `MTLBinaryArchive`. |
 | **Audio Processing** | CoreAudio backend exists, but DSP mixing/biquads/resampling run in scalar C# loops. | Vectorize audio DSP pipelines using ARM64 **`AdvSimd` (NEON)** intrinsics and Apple **`Accelerate.framework` (`vDSP`)** with 16-byte aligned native memory buffers. |
 | **Input Subsystem** | SDL3 controller polling with default event latency. | **Adjustment B:** Configure **Low-Latency SDL3 Apple Backend** with direct event polling and native Apple haptic/rumble dispatch. |
 | **Git & Privacy** | Private keys and game files at risk of accidental tracking. | **Addition 3:** Strict **Git Safety & Privacy Lock** in `.gitignore` + macOS Hardened Runtime JIT/Hypervisor entitlements (bypassing restrictive App Sandbox). |
@@ -133,16 +140,16 @@ Because our refactoring interfaces directly with **Darwin Mach kernel primitives
 
 ## 5. Architectural Additions & Strategic Adjustments
 
-### Addition 1: MoltenVK & Metal 3 TBDR Driver Optimization
-Apple Silicon GPUs use **Tile-Based Deferred Rendering (TBDR)**. By default, generic Vulkan drivers flush tile memory too frequently. We inject optimized MoltenVK configuration flags directly into `MVKInitialization.cs`:
-* `MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS = 3`: Lowers frame submission overhead.
-* `MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS = 0`: Enables non-blocking asynchronous GPU command submission.
-* `MVK_CONFIG_RESUME_LOST_DEVICE = 1`: Prevents crashes on display sleep or external monitor reconnection.
-* `MVK_CONFIG_USE_MTLCONVERGENT_COHERENCE = 1`: Improves memory barrier efficiency on Apple Silicon UMA.
-* Direct hardware **ASTC texture decode** passthrough directly into Metal 3.
+### Addition 1: Native Metal 4 GAL Architecture & M4/M3 Hybrid Engine
+To overcome MoltenVK's single-core command encoding ceiling (~150–250k commands/s vs ~280k/s needed for NieR City Ruins at 30 FPS), Ryu implements a **direct native Metal backend**:
+* **Metal 4 Command Queue & Allocator Pool (`Metal4CommandQueue`):** Per-thread allocators submitting batches via `commit:count:` to eliminate driver submission contention.
+* **`MTL4ArgumentTable` Direct Binding:** Zero-copy buffer bindings via GPU address (`setAddress:atIndex:`), textures and samplers via `gpuResourceID`.
+* **Block-Free Synchronization:** Inter-queue synchronization and CPU frame pacing via non-blocking `MTLSharedEvent` signaling.
+* **Intentional Metal 3 Presentation & Blit Paths:** Metal 4 does not feature a blit encoder; Ryu intentionally pairs M4 render/compute pipelines with proven M3 presentation (`MetalWindow`) and format-converting blit (`MetalFormatBlit`) queues.
+* Direct hardware **ASTC texture decode** passthrough directly into Metal.
 
 ### Addition 2: Dual CPU Execution Engine (`AppleHv` + `ARMeilleure`)
-The repository contains the foundation for **`Ryujinx.Cpu.AppleHv`** ([src/Ryujinx.Cpu/AppleHv](file:///Users/abdullahbinmadhi/Desktop/Ryu/src/Ryujinx.Cpu/AppleHv)):
+The repository contains the foundation for **`Ryujinx.Cpu.AppleHv`** ([src/Ryujinx.Cpu/AppleHv](src/Ryujinx.Cpu/AppleHv)):
 * **Hypervisor Mode (`--cpu-backend=hypervisor`):** Executes 64-bit ARM instructions natively on Apple Silicon CPU hardware without dynamic recompilation (maximum raw throughput).
 * **ARMeilleure JIT Mode (`--cpu-backend=jit`):** Uses our optimized JIT recompiler with inlined software fastmem and FPCR register sync (maximum compatibility for 32-bit titles and custom mods).
 
@@ -160,34 +167,40 @@ The repository contains the foundation for **`Ryujinx.Cpu.AppleHv`** ([src/Ryuji
 
 ## 6. Phased Implementation Master Plan
 
+The graphics and Metal milestones are governed by the operational phases detailed in **[Native Metal Execution Roadmap](docs/native-metal-execution-roadmap.md)**:
+
 ```
-[ Phase 1: Git Lockdown & Core CPU/Thread Acceleration ]
-  ├── Lock private assets (keys/games/firmware) in .gitignore
-  ├── Implement Darwin Mach QoS thread tagging (P-Cores for JIT, E-Cores for Shaders)
-  ├── Implement CVDisplayLink Darwin hardware refresh synchronization (0% spin-wait)
-  ├── ProMotion 120Hz & Adaptive Refresh Sync (Lock to 60/120Hz without game speedup)
-  ├── macOS Game Mode Integration (Double Bluetooth controller polling, max GPU priority)
-  └── Vectorize Audio DSP with ARM64 AdvSimd (NEON) & vDSP with aligned buffers
+[ Phase 0: Baseline & Diagnostics Checkpoint ]
+  ├── Build validation (Ryujinx.Graphics.Metal and Ryujinx.Headless)
+  └── 15/15 subsystems operational in Ryu --test diagnostic harness (PASSED)
 
-[ Phase 2: Decoupled Astris-Style Headless Metal Target ]
-  ├── Extract standalone `Ryujinx.Headless` target (Strip Avalonia/Skia dependencies)
-  ├── Create minimal CAMetalLayer / SDL3 Metal viewport
-  └── Implement interactive ANSI Terminal HUD (FPS, frametimes, thermal state)
+[ Phase 1: Prove & Repair M4 Compute ]
+  ├── Minimal M4 compute kernel with MTL4ArgumentTable output buffer
+  └── Compute lifecycle audit & shared-event completion verification (PASSED)
 
-[ Phase 3: Graphics & MoltenVK / Metal 3 Tuning ]
-  ├── Configure low-latency MoltenVK Metal 3 TBDR parameters
-  ├── Implement E-Core background SPIR-V to MSL translation daemon
-  ├── Dynamic Resolution Scaling (DRS) Viewport Hook (Seamless in-game resolution adaptation)
-  └── Integrate Apple MetalFX Spatial Scaler presentation bridge with format pre-pass
+[ Phase 2: Maxwell -> Metal 4 State Adapters & Virtual Input ]
+  ├── Virtual input feeder in HeadlessRyujinx to advance past loading screens
+  ├── Explicit swapchain target tracking via Horizon OS `vi` (replaces `LastDrawn`)
+  ├── Maxwell TIC/TSC sampler deduplication (safely fits 18 samplers into <=16 slots)
+  ├── Hardware texture component swizzling (`MTLTextureSwizzleChannels`)
+  ├── Scissor bounds normalization and clamping to active attachments
+  ├── Depth bias precision scaling and depth clamping (`MTLDepthClipModeClamp`)
+  └── Gate: [READBACK] sawNonzero=true on a real varying 3D game frame
 
-[ Phase 4: Darwin Memory Management & Purgeable Caches ]
-  ├── Implement 4KB software bitmask dirty tracking inside 16KB host pages
-  ├── Integrate Darwin Mach Purgeable Memory (VM_FLAGS_PURGABLE) to prevent SSD swap
-  └── Implement Lockless SPSC Ring Buffers (128-byte cache-line padded)
+[ Phase 3: Verify M3/M4 Boundary & Synchronization ]
+  ├── Verify intentional M3 presentation (MetalWindow) & blit (MetalFormatBlit)
+  ├── Audit M4 pipeline to prevent M3 selector exceptions
+  └── Synchronize M4 render completion to M3 drawable presentation via MTLSharedEvent
 
-[ Phase 5: Verification & Benchmark against Astris ]
-  ├── Verify Tomodachi Life (Audio voice synthesis, 3D Mii shaders, 60 FPS lock)
-  └── Run 60-minute thermal stability benchmark on fanless MacBook Air M2
+[ Phase 4: Performance, Thermal Budgeting & 30 FPS Lock (M2 Air) ]
+  ├── Multi-threaded pass command encoding across Avalanche P-Cores
+  ├── Strict 30.0 FPS frame cadence via Darwin CVDisplayLink to prevent thermal throttling
+  ├── MetalFX Spatial upscaling to reduce pixel-fill thermal load by ~35%
+  └── Persistent MTLBinaryArchive shader caching for stutter-free gameplay
+
+[ Phase 5: Self-Containment: Native C# MSL Generator (Deferred) ]
+  ├── Emits raw MSL from StructuredProgramInfo without libspirv-cross
+  └── Golden Reference Binding Diff Lock verification
 ```
 
 ---
@@ -198,4 +211,4 @@ The repository contains the foundation for **`Ryujinx.Cpu.AppleHv`** ([src/Ryuji
 2. **Resident Memory (RSS):** Headless baseline memory footprint $\le \text{Guest RAM } (4\text{ GB}) + 350\text{ MB}$.
 3. **Input Polling Latency:** Controller event delivery latency $\le 1.0\text{ ms}$ via low-latency SDL3 Apple backend.
 4. **Audio Latency & Load:** Audio DSP mixer overhead $< 0.5\%$ CPU with deterministic sub-5ms output buffering.
-5. **Thermal Stability:** Sustained target framerate across a continuous 60-minute benchmark on fanless MacBook Air M2 without thermal degradation.
+5. **Thermal Stability & Throughput:** Sustained $\ge 28\text{ FPS}$ avg in NieR City Ruins across a continuous 60-minute benchmark on fanless MacBook Air M2 without thermal degradation.

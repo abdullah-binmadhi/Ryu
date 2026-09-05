@@ -1,4 +1,5 @@
 using Ryujinx.Common;
+using System;
 using System.Threading;
 using System.Timers;
 
@@ -15,6 +16,14 @@ namespace Ryujinx.HLE
         private readonly double[] _accumulatedFrameTime;
         private readonly double[] _previousFrameTime;
 
+        // Sliding-window frame time history for percentile (1% low) statistics.
+        // Sized to hold ~10 seconds of frames at 30 FPS with zero per-frame allocations.
+        private const int FrameTimeHistorySize = 300;
+        private readonly double[] _frameTimeHistory = new double[FrameTimeHistorySize];
+        private readonly double[] _frameTimeScratch = new double[FrameTimeHistorySize];
+        private int _frameTimeCount;
+        private int _frameTimeIndex;
+
         private readonly double[] _averagePercent;
         private readonly double[] _accumulatedActiveTime;
         private readonly double[] _percentLastEndTime;
@@ -25,6 +34,11 @@ namespace Ryujinx.HLE
 
         private readonly Lock[] _frameLock = [new()];
         private readonly Lock[] _percentLock = [new()];
+
+        // Per-frame timing breakdown of Switch.ProcessFrame components (latest values, ticks).
+        private long _lastShaderCacheTicks;
+        private long _lastPreFrameTicks;
+        private long _lastDispatchTicks;
 
         private readonly double _ticksToSeconds;
 
@@ -139,12 +153,33 @@ namespace Ryujinx.HLE
         private void RecordFrameTime(int frameType)
         {
             double currentFrameTime = PerformanceCounter.ElapsedTicks * _ticksToSeconds;
-            double elapsedFrameTime = currentFrameTime - _previousFrameTime[frameType];
+            double previousFrameTime = _previousFrameTime[frameType];
+            double elapsedFrameTime = currentFrameTime - previousFrameTime;
 
             _previousFrameTime[frameType] = currentFrameTime;
 
+            // The first frame has no valid delta (previous time is zero): elapsed is
+            // time since process start and would pollute the average frame time (and
+            // thus the reported FPS frame-time). Skip accumulation until a real frame
+            // boundary exists.
+            if (previousFrameTime == 0)
+            {
+                return;
+            }
+
             lock (_frameLock[frameType])
             {
+                if (elapsedFrameTime > 0)
+                {
+                    _frameTimeHistory[_frameTimeIndex] = elapsedFrameTime;
+                    _frameTimeIndex = (_frameTimeIndex + 1) % FrameTimeHistorySize;
+
+                    if (_frameTimeCount < FrameTimeHistorySize)
+                    {
+                        _frameTimeCount++;
+                    }
+                }
+
                 _accumulatedFrameTime[frameType] += elapsedFrameTime;
 
                 _framesRendered[frameType]++;
@@ -161,9 +196,59 @@ namespace Ryujinx.HLE
             return _averagePercent[PercentTypeFifo];
         }
 
+        /// <summary>
+        /// Records the Stopwatch tick breakdown of the last Switch.ProcessFrame call.
+        /// </summary>
+        public void RecordProcessFrameTimings(long shaderCacheTicks, long preFrameTicks, long dispatchTicks)
+        {
+            Volatile.Write(ref _lastShaderCacheTicks, shaderCacheTicks);
+            Volatile.Write(ref _lastPreFrameTicks, preFrameTicks);
+            Volatile.Write(ref _lastDispatchTicks, dispatchTicks);
+        }
+
+        /// <summary>
+        /// Returns the last recorded ProcessFrame component timings in Stopwatch ticks.
+        /// </summary>
+        public (long ShaderCache, long PreFrame, long Dispatch) GetLastProcessFrameTimings()
+        {
+            return (Volatile.Read(ref _lastShaderCacheTicks), Volatile.Read(ref _lastPreFrameTicks), Volatile.Read(ref _lastDispatchTicks));
+        }
+
         public double GetGameFrameTime()
         {
-            return 1000 / _frameRate[FrameTypeGame];
+            double frameRate = _frameRate[FrameTypeGame];
+
+            return frameRate <= 0 ? 0 : 1000 / frameRate;
+        }
+
+        /// <summary>
+        /// Returns the frame rate of the slowest 1% of frames in the sliding history window.
+        /// This is the standard "1% low" metric and is 0 until enough frames have been recorded.
+        /// </summary>
+        public double GetOnePercentLowFrameRate()
+        {
+            int frameType = FrameTypeGame;
+
+            lock (_frameLock[frameType])
+            {
+                int count = _frameTimeCount;
+
+                if (count < 30)
+                {
+                    return 0;
+                }
+
+                // Copy the ring buffer into scratch space in order, then sort ascending.
+                Array.Copy(_frameTimeHistory, _frameTimeScratch, FrameTimeHistorySize);
+                Array.Sort(_frameTimeScratch, 0, count);
+
+                // 1% low = 99th percentile of frame times (slowest 1% of frames).
+                int percentileIndex = Math.Min(count - 1, (int)(count * 0.99));
+
+                double slowFrameTime = _frameTimeScratch[percentileIndex];
+
+                return slowFrameTime > 0 ? 1.0 / slowFrameTime : 0;
+            }
         }
 
         public string FormatFifoPercent()

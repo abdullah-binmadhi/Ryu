@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Ryujinx.Graphics.Metal.Interop
 {
@@ -21,13 +23,13 @@ namespace Ryujinx.Graphics.Metal.Interop
         // Metal 3.0 version for SPIRV-Cross (enables invariant position, subgroups, etc)
         private const uint MslVersion = 30000;
 
-        // SPVC_RESOURCE_TYPE_*
-        private const int ResourceTypeUniformBuffer = 0;
-        private const int ResourceTypeStorageBuffer = 1;
-        private const int ResourceTypeStorageImage = 5;
-        private const int ResourceTypeSampledImage = 6;
-        private const int ResourceTypeSeparateImage = 7;
-        private const int ResourceTypeSeparateSamplers = 8;
+        // SPVC_RESOURCE_TYPE_* — must match the spvc_resource_type enum in spirv_cross_c.h
+        private const int ResourceTypeUniformBuffer = 1;    // SPVC_RESOURCE_TYPE_UNIFORM_BUFFER
+        private const int ResourceTypeStorageBuffer = 2;    // SPVC_RESOURCE_TYPE_STORAGE_BUFFER
+        private const int ResourceTypeStorageImage = 6;     // SPVC_RESOURCE_TYPE_STORAGE_IMAGE
+        private const int ResourceTypeSampledImage = 7;     // SPVC_RESOURCE_TYPE_SAMPLED_IMAGE
+        private const int ResourceTypeSeparateImage = 10;   // SPVC_RESOURCE_TYPE_SEPARATE_IMAGE
+        private const int ResourceTypeSeparateSamplers = 11;// SPVC_RESOURCE_TYPE_SEPARATE_SAMPLERS
 
         [LibraryImport(Library)]
         private static partial int spvc_context_create(out nint context);
@@ -88,6 +90,13 @@ namespace Ryujinx.Graphics.Metal.Interop
             StorageImage,
             Sampler,
         }
+
+        /// <summary>
+        /// Sentinel value indicating that a texture's sampler has been converted to a
+        /// file-scope constexpr sampler in MSL (because its index >= 16) and must not
+        /// be bound into the MTL4ArgumentTable.
+        /// </summary>
+        public const uint ConstexprSampler = 0xFFFF_FFFEu;
 
         /// <summary>
         /// Maps a SPIR-V (set, binding) resource to its auto-assigned MSL index.
@@ -180,6 +189,19 @@ namespace Ryujinx.Graphics.Metal.Interop
 
                 string msl = Marshal.PtrToStringUTF8((nint)source);
 
+                if (msl == null)
+                {
+                    error = "SPIRV-Cross returned a null MSL source";
+                    return null;
+                }
+
+                // MTL4 argument tables expose at most 16 sampler-state slots. The
+                // current translation ABI does not provide host sampler descriptors
+                // at this stage, so preserve shader validity by folding out-of-range
+                // direct sampler attributes into the last legal slot. Reflection is
+                // compacted identically below before MetalPipeline binds the table.
+                msl = CompactSamplerAttributes(msl);
+
                 CollectBindings(compiler, bindings);
 
                 return msl;
@@ -248,8 +270,114 @@ namespace Ryujinx.Graphics.Metal.Interop
                 uint binding = spvc_compiler_get_decoration(compiler, resource.Id, DecorationBinding);
                 uint set = spvc_compiler_get_decoration(compiler, resource.Id, DecorationDescriptorSet);
 
+                if (samplerIndex >= 16 && samplerIndex != uint.MaxValue)
+                {
+                    samplerIndex = ConstexprSampler;
+                }
+
                 output.Add(new MslBindingInfo(kind, set, binding, mslIndex, samplerIndex));
             }
+        }
+
+        private static readonly Regex SamplerParamRegex = new(
+            @"(?:const\s+)?(?:metal::)?sampler\s+(?<name>[A-Za-z0-9_]+)\s*\[\[\s*sampler\(\s*(?<idx>\d+)\s*\)\s*\]\]",
+            RegexOptions.Compiled);
+
+        /// <summary>
+        /// Scans MSL for entry-point sampler parameters with binding index >= 16 (which exceed Metal's 16-sampler limit).
+        /// Removes them from the entry-point parameter list and injects corresponding file-scope constexpr sampler declarations.
+        /// </summary>
+        public static string CompactSamplerAttributes(string msl)
+        {
+            var matches = SamplerParamRegex.Matches(msl);
+            var overflowSamplers = new List<(string Name, int Start, int Length)>();
+
+            foreach (Match m in matches)
+            {
+                if (uint.TryParse(m.Groups["idx"].Value, out uint idx) && idx >= 16)
+                {
+                    overflowSamplers.Add((m.Groups["name"].Value, m.Index, m.Length));
+                }
+            }
+
+            if (overflowSamplers.Count == 0)
+            {
+                return msl;
+            }
+
+            var constexprSamplers = new List<string>();
+
+            // Process in reverse order so character offsets preceding each match remain unchanged.
+            for (int i = overflowSamplers.Count - 1; i >= 0; i--)
+            {
+                var (name, start, length) = overflowSamplers[i];
+                if (!constexprSamplers.Contains(name))
+                {
+                    constexprSamplers.Add(name);
+                }
+
+                int removeStart = start;
+                int removeLength = length;
+
+                // Check if preceded by a comma
+                int back = start - 1;
+                while (back >= 0 && char.IsWhiteSpace(msl[back]))
+                {
+                    back--;
+                }
+
+                if (back >= 0 && msl[back] == ',')
+                {
+                    removeStart = back;
+                    removeLength = (start + length) - back;
+                }
+                else
+                {
+                    // Check if followed by a comma
+                    int fwd = start + length;
+                    while (fwd < msl.Length && char.IsWhiteSpace(msl[fwd]))
+                    {
+                        fwd++;
+                    }
+
+                    if (fwd < msl.Length && msl[fwd] == ',')
+                    {
+                        removeLength = (fwd + 1) - start;
+                    }
+                }
+
+                msl = msl.Remove(removeStart, removeLength);
+            }
+
+            var sb = new StringBuilder();
+            foreach (string name in constexprSamplers)
+            {
+                if (!msl.Contains($"constexpr sampler {name}"))
+                {
+                    sb.AppendLine($"constexpr sampler {name}(coord::normalized, filter::linear, mip_filter::linear, address::clamp_to_edge);");
+                }
+            }
+
+            int insertIdx = msl.IndexOf("using namespace metal;", StringComparison.Ordinal);
+            if (insertIdx >= 0)
+            {
+                insertIdx = msl.IndexOf('\n', insertIdx);
+                if (insertIdx >= 0)
+                {
+                    insertIdx += 1;
+                    msl = msl.Insert(insertIdx, "\n" + sb.ToString());
+                }
+                else
+                {
+                    msl = sb.ToString() + "\n" + msl;
+                }
+            }
+            else
+            {
+                msl = sb.ToString() + "\n" + msl;
+            }
+
+            return msl;
         }
 
         private static string GetError(nint context)

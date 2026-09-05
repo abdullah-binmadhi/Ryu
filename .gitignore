@@ -203,3 +203,13 @@ prod.keys
 title.keys
 [60 FPS]/
 *.pchtxt
+Nintendo Firmware 22.5.0/
+
+# Agent and Editor Local Workspace State
+.agents/
+.zed/
+captures/
+scratch/
+__pycache__/
+*.pyc
+

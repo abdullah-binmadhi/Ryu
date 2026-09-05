@@ -113,9 +113,21 @@ namespace Ryujinx.HLE
 
         public void ProcessFrame()
         {
+            long t0 = global::System.Diagnostics.Stopwatch.GetTimestamp();
+
             Gpu.ProcessShaderCacheQueue();
+
+            long t1 = global::System.Diagnostics.Stopwatch.GetTimestamp();
+
             Gpu.Renderer.PreFrame();
+
+            long t2 = global::System.Diagnostics.Stopwatch.GetTimestamp();
+
             Gpu.GPFifo.DispatchCalls();
+
+            long t3 = global::System.Diagnostics.Stopwatch.GetTimestamp();
+
+            Statistics.RecordProcessFrameTimings(t1 - t0, t2 - t1, t3 - t2);
         }
 
         public int IncrementCustomVSyncInterval()

@@ -15,6 +15,7 @@ using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Gpu;
 using Ryujinx.Graphics.Gpu.Shader;
 using Ryujinx.Graphics.Vulkan.MoltenVK;
+using Ryujinx.Headless.UI;
 using Ryujinx.HLE;
 using Ryujinx.HLE.FileSystem;
 using Ryujinx.HLE.HOS;
@@ -151,6 +152,8 @@ namespace Ryujinx.Headless
 
             AppDataManager.Initialize(option.BaseDataDir);
 
+            TerminalHud.CsvLogEnabled = option.FpsLog;
+
             if (useLastUsedProfile && AccountSaveDataManager.GetLastUsedUser().TryGet(out UserProfile profile))
                 option.UserProfile = profile.Name;
 
@@ -257,9 +260,9 @@ namespace Ryujinx.Headless
             if (_contentManager.GetCurrentFirmwareVersion() == null)
             {
                 string localFwDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "nintendo games", "emulation keys", "Nintendo Firmware 22.5.0");
-                string workspaceFwDir = "/Users/abdullahbinmadhi/Desktop/Ryu/nintendo games/emulation keys/Nintendo Firmware 22.5.0";
+                string cwdFwDir = Path.Combine(Environment.CurrentDirectory, "nintendo games", "emulation keys", "Nintendo Firmware 22.5.0");
 
-                string fwToInstall = Directory.Exists(localFwDir) ? localFwDir : (Directory.Exists(workspaceFwDir) ? workspaceFwDir : null);
+                string fwToInstall = Directory.Exists(localFwDir) ? localFwDir : (Directory.Exists(cwdFwDir) ? cwdFwDir : null);
                 if (fwToInstall != null)
                 {
                     Logger.Info?.Print(LogClass.Application, $"Auto-installing Nintendo Switch Firmware from {fwToInstall}...");

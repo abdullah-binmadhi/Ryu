@@ -1888,6 +1888,28 @@ namespace Ryujinx.HLE.HOS.Kernel.SupervisorCall
                 currentThread.PrintGuestStackTrace();
                 currentThread.PrintGuestRegisterPrintout();
 
+                try
+                {
+                    KProcess process = currentThread.Owner;
+                    for (int r = 0; r < 8; r++)
+                    {
+                        ulong addr = currentThread.Context.GetX(r);
+                        if (addr > 0x1000 && addr < 0x8000000000)
+                        {
+                            try
+                            {
+                                string s = MemoryHelper.ReadAsciiString(process.CpuMemory, addr, 256);
+                                if (!string.IsNullOrWhiteSpace(s) && s.Length > 1)
+                                {
+                                    Logger.Error?.Print(LogClass.KernelSvc, $"Break X[{r}]: 0x{addr:X} => \"{s}\"");
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch { }
+
                 // As the process is exiting, this is probably caused by emulation termination.
                 if (currentThread.Owner.State == ProcessState.Exiting)
                 {

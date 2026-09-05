@@ -32,6 +32,8 @@ namespace Ryujinx.Cpu.AppleHv
 
         public HvVcpu Create(HvAddressSpace addressSpace, IHvExecutionContext shadowContext, Action<IHvExecutionContext> swapContext)
         {
+            HvExecutionStats.OnVcpuCreated();
+
             HvVcpu vcpu = CreateNew(addressSpace, shadowContext);
             vcpu.NativeContext.Load(shadowContext);
             swapContext(vcpu.NativeContext);
@@ -43,6 +45,8 @@ namespace Ryujinx.Cpu.AppleHv
             vcpu.ShadowContext.Load(vcpu.NativeContext);
             swapContext(vcpu.ShadowContext);
             DestroyVcpu(vcpu);
+
+            HvExecutionStats.OnVcpuDestroyed();
         }
 
         public void Return(HvVcpu vcpu, Action<IHvExecutionContext> swapContext)

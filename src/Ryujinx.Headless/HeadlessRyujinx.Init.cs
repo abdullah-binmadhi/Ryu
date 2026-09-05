@@ -211,8 +211,12 @@ namespace Ryujinx.Headless
 
         private static Switch InitializeEmulationContext(WindowBase window, IRenderer renderer, Options options)
         {
-            if (options.TargetFps > 0)
+            if (options.TargetFps > 0 && options.TargetFps > 30)
             {
+                // Only force a custom emulated refresh when targeting above 30 FPS.
+                // Switch games are authored for a 60 Hz display; a 30 FPS game paces
+                // itself to every second vsync. Emulating a 30 Hz display would halve
+                // its speed (observed: rock-steady 15.0 FPS instead of 30.0).
                 options.VSyncMode = VSyncMode.Custom;
                 options.CustomVSyncInterval = options.TargetFps;
             }

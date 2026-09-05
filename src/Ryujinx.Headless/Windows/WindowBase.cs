@@ -387,7 +387,12 @@ namespace Ryujinx.Headless
             if (Device != null)
             {
                 Device.CustomVSyncInterval = targetFps;
-                Device.CustomVSyncIntervalEnabled = targetFps != 30;
+
+                // 30 FPS targets keep the native 60 Hz emulated display refresh:
+                // 30 FPS games pace themselves to every second vsync on real hardware.
+                Device.VSyncMode = targetFps == 30 ? VSyncMode.Switch : VSyncMode.Custom;
+
+                Device.UpdateVSyncInterval();
             }
             Logger.Info?.Print(LogClass.Application, $"Target FPS switched to: {targetFps} FPS");
         }
@@ -478,6 +483,15 @@ namespace Ryujinx.Headless
                         Device.Statistics.RecordFifoStart();
                         Device.ProcessFrame();
                         Device.Statistics.RecordFifoEnd();
+
+                        (long shaderTicks, long preFrameTicks, long dispatchTicks) = Device.Statistics.GetLastProcessFrameTimings();
+
+                        double ticksToMs = 1000.0 / Stopwatch.Frequency;
+
+                        TerminalHud.AddFrameTimings(
+                            shaderTicks * ticksToMs,
+                            preFrameTicks * ticksToMs,
+                            dispatchTicks * ticksToMs);
                     }
 
                     while (Device.ConsumeFrameAvailable())
@@ -486,7 +500,11 @@ namespace Ryujinx.Headless
                     }
 
                     // Feed metrics to HUD
-                    TerminalHud.UpdateMetrics(Device.Statistics.GetGameFrameRate(), Device.Statistics.GetGameFrameTime());
+                    TerminalHud.UpdateMetrics(
+                        Device.Statistics.GetGameFrameRate(),
+                        Device.Statistics.GetGameFrameTime(),
+                        Device.Statistics.GetOnePercentLowFrameRate(),
+                        Device.Statistics.GetFifoPercent());
 
                     if (_ticks >= _ticksPerFrame)
                     {

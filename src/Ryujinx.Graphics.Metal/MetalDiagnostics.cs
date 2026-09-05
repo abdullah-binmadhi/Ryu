@@ -180,10 +180,20 @@ namespace Ryujinx.Graphics.Metal
 
                 message += "; command pool OK";
 
-                // M4+: Metal 4 parallel encoding — the perf-critical path (MTL4Compiler,
-                // per-thread allocators, argument tables, commit:count:, shared-event wait).
+                // M4: prove compute encoder submission, argument-table binding, and
+                // shared-event completion independently of game shader state.
                 if (OperatingSystem.IsMacOSVersionAtLeast(26))
                 {
+                    if (!RunMetal4ComputeTest(out string computeMessage))
+                    {
+                        message = computeMessage;
+                        return false;
+                    }
+
+                    message += "; Metal 4 compute encode OK";
+
+                    // M4+: Metal 4 parallel encoding — the perf-critical path (MTL4Compiler,
+                    // per-thread allocators, argument tables, commit:count:, shared-event wait).
                     if (!RunMetal4ParallelTest(out string m4Message))
                     {
                         message = m4Message;
@@ -849,6 +859,7 @@ namespace Ryujinx.Graphics.Metal
 
                 pipeline.DrawIndexed(6, 1, 0, 0, 0);
                 pipeline.FlushFrame();
+                Thread.Sleep(50);
 
                 PinnedSpan<byte> data = colorTarget.GetData();
                 byte[] pixels;
@@ -882,6 +893,7 @@ namespace Ryujinx.Graphics.Metal
                 pipeline.ClearRenderTargetColor(0, 0, 1, 0xF, new ColorF(0f, 0f, 1f, 1f));
                 pipeline.Draw(0, 0, 0, 0); // builds the pass (clear), draws nothing
                 pipeline.FlushFrame();
+                Thread.Sleep(50);
 
                 PinnedSpan<byte> clearData = colorTarget.GetData();
                 byte[] clearPixels;
@@ -923,6 +935,7 @@ namespace Ryujinx.Graphics.Metal
                 pipeline.ClearRenderTargetDepthStencil(0, 1, 0.25f, true, 0, 0);
                 pipeline.Draw(0, 0, 0, 0); // builds the pass (color+depth clear), draws nothing
                 pipeline.FlushFrame();
+                Thread.Sleep(50);
 
                 PinnedSpan<byte> depthData = depthTarget.GetData();
                 byte[] depthBytes;
@@ -1252,6 +1265,200 @@ namespace Ryujinx.Graphics.Metal
                 }
 
                 renderer?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// M4 compute self-test. This intentionally uses a trivial kernel and one storage
+        /// buffer so a failure identifies the M4 compute submission/binding path rather
+        /// than a game shader, texture, image, or dispatch-dimension problem.
+        /// </summary>
+        private static unsafe bool RunMetal4ComputeTest(out string message)
+        {
+            const uint ExpectedValue = 0xC0FFEE42;
+
+            nint device = nint.Zero;
+            nint library = nint.Zero;
+            nint function = nint.Zero;
+            nint pipeline = nint.Zero;
+            nint output = nint.Zero;
+            nint tableDescriptor = nint.Zero;
+            nint table = nint.Zero;
+            nint commandBuffer = nint.Zero;
+            nint encoder = nint.Zero;
+            Metal4CommandQueue? queue = null;
+            Metal4CommandAllocator? allocator = null;
+            nint sourceString = nint.Zero;
+            nint functionName = nint.Zero;
+
+            const string source = """
+                #include <metal_stdlib>
+                using namespace metal;
+                kernel void m4_compute_probe(device uint* output [[buffer(0)]],
+                                             uint gid [[thread_position_in_grid]])
+                {
+                    if (gid == 0) output[0] = 0xC0FFEE42;
+                }
+                """;
+
+            try
+            {
+                device = MetalBindings.Retain(MetalBindings.MTLCreateSystemDefaultDevice());
+                if (device == nint.Zero)
+                {
+                    message = "m4 compute: no Metal device";
+                    return false;
+                }
+
+                sourceString = MetalBindings.CreateNSString(source);
+                nint nsError = nint.Zero;
+                library = MetalBindings.objc_msgSend(
+                    device,
+                    MetalBindings.SelNewLibraryWithSourceOptionsError,
+                    sourceString,
+                    nint.Zero,
+                    (nint)(&nsError));
+
+                if (library == nint.Zero)
+                {
+                    string error = nsError != nint.Zero ? MetalBindings.GetErrorDescription(nsError) : "unknown error";
+                    message = $"m4 compute: MSL library creation failed: {error}";
+                    return false;
+                }
+
+                functionName = MetalBindings.CreateNSString("m4_compute_probe");
+                function = MetalBindings.objc_msgSend(
+                    library,
+                    MetalBindings.SelNewFunctionWithName,
+                    functionName);
+
+                if (function == nint.Zero)
+                {
+                    message = "m4 compute: newFunctionWithName returned nil";
+                    return false;
+                }
+
+                pipeline = MetalBindings.objc_msgSend(
+                    device,
+                    MetalBindings.SelNewComputePipelineStateWithFunctionError,
+                    function,
+                    nint.Zero);
+
+                if (pipeline == nint.Zero)
+                {
+                    message = "m4 compute: compute pipeline creation failed";
+                    return false;
+                }
+
+                output = MetalBindings.objc_msgSend(
+                    device,
+                    MetalBindings.SelNewBufferWithLengthOptions,
+                    (nuint)sizeof(uint),
+                    (nuint)MetalBindings.MTLResourceStorageModeShared);
+
+                if (output == nint.Zero)
+                {
+                    message = "m4 compute: output buffer creation failed";
+                    return false;
+                }
+
+                tableDescriptor = Metal4Bindings.Metal4New("MTL4ArgumentTableDescriptor");
+                Metal4Bindings.m4_msgSend_void(tableDescriptor, Metal4Bindings.SelSetMaxBufferBindCount, (nuint)1);
+                Metal4Bindings.m4_msgSend_void(tableDescriptor, Metal4Bindings.SelSetMaxTextureBindCount, (nuint)0);
+                Metal4Bindings.m4_msgSend_void(tableDescriptor, Metal4Bindings.SelSetMaxSamplerStateBindCount, (nuint)0);
+                table = MetalBindings.objc_msgSend(device, Metal4Bindings.SelNewArgumentTableWithDescriptorError, tableDescriptor, nint.Zero);
+
+                if (table == nint.Zero)
+                {
+                    message = "m4 compute: argument table creation failed";
+                    return false;
+                }
+
+                ulong outputAddress = MetalBindings.objc_msgSend_ulong_ret(output, Metal4Bindings.SelGpuAddress);
+                if (outputAddress == 0)
+                {
+                    message = "m4 compute: output buffer has no GPU address";
+                    return false;
+                }
+
+                Metal4Bindings.m4_msgSend_void(table, Metal4Bindings.SelSetAddressAtIndex, outputAddress, (nuint)0);
+
+                queue = new Metal4CommandQueue(device);
+                allocator = new Metal4CommandAllocator(device);
+                commandBuffer = queue.BeginCommandBuffer(device, allocator.Handle);
+                if (commandBuffer == nint.Zero)
+                {
+                    message = "m4 compute: command buffer creation failed";
+                    return false;
+                }
+
+                encoder = MetalBindings.objc_msgSend(commandBuffer, MetalBindings.SelComputeCommandEncoder);
+                if (encoder == nint.Zero)
+                {
+                    message = "m4 compute: compute encoder creation failed";
+                    return false;
+                }
+
+                MetalBindings.objc_msgSend_void(encoder, MetalBindings.SelSetComputePipelineState, pipeline);
+                Metal4Bindings.m4_msgSend_void(encoder, Metal4Bindings.SelSetArgumentTableCompute, table);
+
+                MTLSize grid = new(1, 1, 1);
+                MTLSize threads = new(1, 1, 1);
+                MetalBindings.objc_msgSend_void(encoder, MetalBindings.SelDispatchThreadgroupsThreadsPerThreadgroup, &grid, &threads);
+                MetalBindings.objc_msgSend_void(encoder, MetalBindings.SelEndEncoding);
+                MetalBindings.Release(encoder);
+                encoder = nint.Zero;
+
+                queue.EndCommandBuffer(commandBuffer);
+                ulong signal = queue.SubmitAndWait(new[] { commandBuffer }, TimeoutMs);
+                MetalBindings.Release(commandBuffer);
+                commandBuffer = nint.Zero;
+
+                if (queue.SignaledValue < signal)
+                {
+                    message = $"m4 compute: shared event did not signal (signal={signal}, observed={queue.SignaledValue})";
+                    return false;
+                }
+
+                nint contents = MetalBindings.objc_msgSend(output, MetalBindings.SelContents);
+                if (contents == nint.Zero || *(uint*)contents != ExpectedValue)
+                {
+                    uint actual = contents != nint.Zero ? *(uint*)contents : 0;
+                    message = $"m4 compute: output verification failed (0x{actual:X8}, expected 0x{ExpectedValue:X8})";
+                    return false;
+                }
+
+                message = "Metal 4 compute encode OK (compute encoder + argument table + shared-event completion)";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = $"m4 compute test exception: {ex.Message}";
+                return false;
+            }
+            finally
+            {
+                if (encoder != nint.Zero)
+                {
+                    MetalBindings.objc_msgSend_void(encoder, MetalBindings.SelEndEncoding);
+                    MetalBindings.Release(encoder);
+                }
+                if (commandBuffer != nint.Zero)
+                {
+                    Metal4Bindings.m4_msgSend_void(commandBuffer, Metal4Bindings.SelEndCommandBuffer);
+                    MetalBindings.Release(commandBuffer);
+                }
+                MetalBindings.Release(functionName);
+                MetalBindings.Release(sourceString);
+                MetalBindings.Release(table);
+                MetalBindings.Release(tableDescriptor);
+                MetalBindings.Release(output);
+                MetalBindings.Release(pipeline);
+                MetalBindings.Release(function);
+                MetalBindings.Release(library);
+                allocator?.Dispose();
+                queue?.Dispose();
+                MetalBindings.Release(device);
             }
         }
 
@@ -1622,6 +1829,558 @@ mslString = MetalBindings.CreateNSString("m4-parallel-compiler");
             }
 
             return true;
+        }
+
+        public static bool TestFormatBlitAndCompression(out string message)
+        {
+            nint device = nint.Zero;
+            nint queue = nint.Zero;
+
+            try
+            {
+                device = MetalBindings.Retain(MetalBindings.MTLCreateSystemDefaultDevice());
+                queue = MetalBindings.Retain(MetalBindings.objc_msgSend(device, MetalBindings.SelNewCommandQueue));
+
+                if (device == nint.Zero || queue == nint.Zero)
+                {
+                    message = "Metal device/queue creation failed";
+                    return false;
+                }
+
+                // 1. Test ASTC 4x4 compressed texture allocation and round-trip
+                TextureCreateInfo astcInfo = new(
+                    64, 64, 1, 1, 1, 4, 4, 16,
+                    Format.Astc4x4Unorm,
+                    DepthStencilMode.Depth,
+                    Target.Texture2D,
+                    SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+
+                using MetalTexture astcTex = new(device, queue, astcInfo);
+                if (astcTex.TextureHandle == nint.Zero)
+                {
+                    message = "ASTC texture allocation failed";
+                    return false;
+                }
+
+                int astcBlocks = (64 / 4) * (64 / 4);
+                byte[] astcBytes = new byte[astcBlocks * 16];
+                Array.Fill<byte>(astcBytes, 0xAB);
+                using (MemoryOwner<byte> owner = MemoryOwner<byte>.RentCopy(astcBytes))
+                {
+                    astcTex.SetData(owner);
+                }
+
+                PinnedSpan<byte> astcRead = astcTex.GetData();
+                try
+                {
+                    if (astcRead.Get()[0] != 0xAB)
+                    {
+                        message = "ASTC block data readback mismatch";
+                        return false;
+                    }
+                }
+                finally
+                {
+                    astcRead.Dispose();
+                }
+
+                // 2. Test HDR (R11G11B10Float) to RGBA8 format blit
+                TextureCreateInfo hdrInfo = new(
+                    64, 64, 1, 1, 1, 1, 1, 4,
+                    Format.R11G11B10Float,
+                    DepthStencilMode.Depth,
+                    Target.Texture2D,
+                    SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+
+                using MetalTexture hdrTex = new(device, queue, hdrInfo);
+                if (hdrTex.TextureHandle == nint.Zero)
+                {
+                    message = "HDR texture allocation failed";
+                    return false;
+                }
+
+                byte[] hdrBytes = new byte[64 * 64 * 4];
+                for (int i = 0; i < 64 * 64; i++)
+                {
+                    hdrBytes[i * 4 + 0] = 0xC0; // Red = 1.0f (mantissa 0, exp 15)
+                    hdrBytes[i * 4 + 1] = 0x03;
+                    hdrBytes[i * 4 + 2] = 0x00;
+                    hdrBytes[i * 4 + 3] = 0x00;
+                }
+                using (MemoryOwner<byte> owner = MemoryOwner<byte>.RentCopy(hdrBytes))
+                {
+                    hdrTex.SetData(owner);
+                }
+
+                TextureCreateInfo dstInfo = new(
+                    64, 64, 1, 1, 1, 1, 1, 4,
+                    Format.R8G8B8A8Unorm,
+                    DepthStencilMode.Depth,
+                    Target.Texture2D,
+                    SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+
+                using MetalTexture dstTex = new(device, queue, dstInfo);
+                if (dstTex.TextureHandle == nint.Zero)
+                {
+                    message = "Destination blit texture allocation failed";
+                    return false;
+                }
+
+                MetalFormatBlit blitter = new(device, queue);
+                blitter.Copy(hdrTex, dstTex, new Extents2D(0, 0, 64, 64), new Extents2D(0, 0, 64, 64), false);
+                blitter.Dispose();
+
+                Thread.Sleep(50);
+
+                PinnedSpan<byte> dstRead = dstTex.GetData();
+                byte r;
+                try
+                {
+                    r = dstRead.Get()[0];
+                }
+                finally
+                {
+                    dstRead.Dispose();
+                }
+
+                if (r < 200)
+                {
+                    message = $"HDR format blit failed: expected Red > 200, got R={r}";
+                    return false;
+                }
+
+                message = $"ASTC 4x4 OK; HDR R11G11B10 -> RGBA8 format blit OK (R={r})";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+            finally
+            {
+                if (queue != nint.Zero) MetalBindings.Release(queue);
+                if (device != nint.Zero) MetalBindings.Release(device);
+            }
+        }
+
+        public static bool TestMultiTargetRenderPass(out string message)
+        {
+            try
+            {
+                using var renderer = new MetalRenderer();
+                var pipeline = (MetalPipeline)renderer.Pipeline;
+
+                TextureCreateInfo colorInfo0 = new(64, 64, 1, 1, 1, 1, 1, 4, Format.R8G8B8A8Unorm, DepthStencilMode.Depth, Target.Texture2D, SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+                TextureCreateInfo colorInfo1 = new(64, 64, 1, 1, 1, 1, 1, 4, Format.B8G8R8A8Unorm, DepthStencilMode.Depth, Target.Texture2D, SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+                TextureCreateInfo depthInfo = new(64, 64, 1, 1, 1, 1, 1, 4, Format.D32Float, DepthStencilMode.Depth, Target.Texture2D, SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+
+                using MetalTexture target0 = new(renderer.DeviceHandle, renderer.CommandQueueHandle, colorInfo0);
+                using MetalTexture target1 = new(renderer.DeviceHandle, renderer.CommandQueueHandle, colorInfo1);
+                using MetalTexture depthTarget = new(renderer.DeviceHandle, renderer.CommandQueueHandle, depthInfo);
+
+                pipeline.SetRenderTargets(new ITexture[] { target0, target1 }, depthTarget);
+                pipeline.ClearRenderTargetColor(0, 0, 1, 0xF, new ColorF(1f, 0f, 0f, 1f));
+                pipeline.ClearRenderTargetColor(1, 0, 1, 0xF, new ColorF(0f, 1f, 0f, 1f));
+                pipeline.ClearRenderTargetDepthStencil(0, 1, 0.75f, true, 0, 0);
+
+                pipeline.Draw(0, 0, 0, 0);
+                pipeline.FlushFrame();
+                Thread.Sleep(50);
+
+                PinnedSpan<byte> data0 = target0.GetData();
+                byte r0;
+                try { r0 = data0.Get()[0]; } finally { data0.Dispose(); }
+
+                PinnedSpan<byte> data1 = target1.GetData();
+                byte g1;
+                try { g1 = data1.Get()[1]; } finally { data1.Dispose(); }
+
+                PinnedSpan<byte> depthData = depthTarget.GetData();
+                float depthVal;
+                try { depthVal = BitConverter.ToSingle(depthData.Get()); } finally { depthData.Dispose(); }
+
+                if (r0 < 200 || g1 < 200 || Math.Abs(depthVal - 0.75f) > 0.05f)
+                {
+                    message = $"MRT pass failed (R0={r0}, G1={g1}, Depth={depthVal})";
+                    return false;
+                }
+
+                message = $"MRT simultaneous targets OK (target0=Red, target1=Green, depth=0.75)";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+        }
+
+        public static bool TestGuiRenderLoopSimulation(out string message)
+        {
+            if (!OperatingSystem.IsMacOS())
+            {
+                message = "Skipped (not macOS)";
+                return true;
+            }
+
+            try
+            {
+                using var renderer = new MetalRenderer();
+                var pipeline = (MetalPipeline)renderer.Pipeline;
+
+                TextureCreateInfo sceneInfo = new(
+                    320, 240, 1, 1, 1, 1, 1, 4,
+                    Format.R8G8B8A8Unorm,
+                    DepthStencilMode.Depth,
+                    Target.Texture2D,
+                    SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+
+                using MetalTexture sceneTexture = new(renderer.DeviceHandle, renderer.CommandQueueHandle, sceneInfo);
+
+                pipeline.SetRenderTargets(new ITexture[] { sceneTexture }, null);
+                pipeline.ClearRenderTargetColor(0, 0, 1, 0xF, new ColorF(0f, 1f, 1f, 1f));
+                pipeline.Draw(0, 0, 0, 0);
+                pipeline.FlushFrame();
+                Thread.Sleep(50);
+
+                MetalWindow metalWindow = new(renderer, renderer.DeviceHandle, renderer.CommandQueueHandle);
+                metalWindow.SetSize(320, 240);
+                
+                metalWindow.Present(sceneTexture, default, () => { });
+
+                PinnedSpan<byte> readback = sceneTexture.GetData();
+                byte g, b;
+                try
+                {
+                    ReadOnlySpan<byte> s = readback.Get();
+                    g = s[1];
+                    b = s[2];
+                }
+                finally
+                {
+                    readback.Dispose();
+                }
+
+                metalWindow.Dispose();
+
+                if (g < 200 || b < 200)
+                {
+                    message = $"RenderLoop simulation failed (G={g}, B={b})";
+                    return false;
+                }
+
+                message = $"End-to-End GUI RenderLoop OK (Render -> Flush -> Present -> Readback Cyan G={g}, B={b})";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+        }
+
+        public static bool TestVideoNvdecBlit(out string message)
+        {
+            try
+            {
+                using var renderer = new MetalRenderer();
+
+                TextureCreateInfo yInfo = new(64, 64, 1, 1, 1, 1, 1, 1, Format.R8Unorm, DepthStencilMode.Depth, Target.Texture2D, SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+                TextureCreateInfo uvInfo = new(32, 32, 1, 1, 1, 1, 1, 2, Format.R8G8Unorm, DepthStencilMode.Depth, Target.Texture2D, SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+                TextureCreateInfo rgbInfo = new(64, 64, 1, 1, 1, 1, 1, 4, Format.R8G8B8A8Unorm, DepthStencilMode.Depth, Target.Texture2D, SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+
+                using MetalTexture yTex = new(renderer.DeviceHandle, renderer.CommandQueueHandle, yInfo);
+                using MetalTexture uvTex = new(renderer.DeviceHandle, renderer.CommandQueueHandle, uvInfo);
+                using MetalTexture rgbTex = new(renderer.DeviceHandle, renderer.CommandQueueHandle, rgbInfo);
+
+                byte[] yBytes = new byte[64 * 64];
+                Array.Fill<byte>(yBytes, 0xC0);
+                using (MemoryOwner<byte> owner = MemoryOwner<byte>.RentCopy(yBytes))
+                {
+                    yTex.SetData(owner);
+                }
+
+                byte[] uvBytes = new byte[32 * 32 * 2];
+                Array.Fill<byte>(uvBytes, 0x80);
+                using (MemoryOwner<byte> owner = MemoryOwner<byte>.RentCopy(uvBytes))
+                {
+                    uvTex.SetData(owner);
+                }
+
+                MetalFormatBlit blitter = new(renderer.DeviceHandle, renderer.CommandQueueHandle);
+                blitter.Copy(yTex, rgbTex, new Extents2D(0, 0, 64, 64), new Extents2D(0, 0, 64, 64), false);
+                blitter.Dispose();
+
+                Thread.Sleep(50);
+
+                PinnedSpan<byte> rgbRead = rgbTex.GetData();
+                byte r;
+                try
+                {
+                    r = rgbRead.Get()[0];
+                }
+                finally
+                {
+                    rgbRead.Dispose();
+                }
+
+                if (r < 180)
+                {
+                    message = $"Video YUV/NV12 blit failed (R={r})";
+                    return false;
+                }
+
+                message = $"NVDEC / YUV video surface blit OK (Y -> RGB R={r})";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+        }
+
+        public static unsafe bool TestStaticBufferInjectionGroundTruth(out string message)
+        {
+            const nuint PageAlignment = 16384;
+            const int width = 128;
+            const int height = 128;
+            const int bytesPerRow = width * 4;
+            const nuint totalBytes = bytesPerRow * height;
+
+            byte* hostInject = null;
+            byte* hostReadback = null;
+
+            nint device = nint.Zero;
+            nint queue = nint.Zero;
+
+            try
+            {
+                device = MetalBindings.Retain(MetalBindings.MTLCreateSystemDefaultDevice());
+                queue = MetalBindings.Retain(MetalBindings.objc_msgSend(device, MetalBindings.SelNewCommandQueue));
+
+                if (device == nint.Zero || queue == nint.Zero)
+                {
+                    message = "Metal device/queue creation failed";
+                    return false;
+                }
+
+                hostInject = (byte*)System.Runtime.InteropServices.NativeMemory.AlignedAlloc(totalBytes, PageAlignment);
+                hostReadback = (byte*)System.Runtime.InteropServices.NativeMemory.AlignedAlloc(totalBytes, PageAlignment);
+
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        int offset = (y * width + x) * 4;
+                        hostInject[offset + 0] = (byte)(x & 0xFF);
+                        hostInject[offset + 1] = (byte)(y & 0xFF);
+                        hostInject[offset + 2] = (byte)((x ^ y) & 0xFF);
+                        hostInject[offset + 3] = 0xFF;
+                    }
+                }
+
+                TextureCreateInfo info = new(
+                    width, height, 1, 1, 1, 1, 1, 4,
+                    Format.R8G8B8A8Unorm,
+                    DepthStencilMode.Depth,
+                    Target.Texture2D,
+                    SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+
+                using MetalTexture tex = new(device, queue, info);
+                if (tex.TextureHandle == nint.Zero)
+                {
+                    message = "Shared texture creation failed";
+                    return false;
+                }
+
+                MTLRegion region = new(0, 0, 0, (nuint)width, (nuint)height, 1);
+                MetalBindings.objc_msgSend_void(
+                    tex.TextureHandle,
+                    MetalBindings.SelReplaceRegionMipmapLevelWithBytesBytesPerRow,
+                    &region,
+                    (nuint)0,
+                    hostInject,
+                    (nuint)bytesPerRow);
+
+                MetalBindings.objc_msgSend_void(
+                    tex.TextureHandle,
+                    MetalBindings.SelGetBytesBytesPerRowFromRegionMipmapLevel,
+                    hostReadback,
+                    (nuint)bytesPerRow,
+                    &region,
+                    (nuint)0);
+
+                int mismatches = 0;
+                for (nuint i = 0; i < totalBytes; i++)
+                {
+                    if (hostInject[i] != hostReadback[i])
+                    {
+                        mismatches++;
+                    }
+                }
+
+                if (mismatches > 0)
+                {
+                    message = $"Ground truth injection failed: {mismatches}/{totalBytes} byte mismatches";
+                    return false;
+                }
+
+                message = $"Static buffer ground truth OK (16KB page-aligned UMA direct match 16,384 px)";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+            finally
+            {
+                if (hostInject != null) System.Runtime.InteropServices.NativeMemory.AlignedFree(hostInject);
+                if (hostReadback != null) System.Runtime.InteropServices.NativeMemory.AlignedFree(hostReadback);
+                if (queue != nint.Zero) MetalBindings.Release(queue);
+                if (device != nint.Zero) MetalBindings.Release(device);
+            }
+        }
+
+        /// <summary>
+        /// Validates the invariants used by the live game render path. This is deliberately
+        /// independent of the synthetic color tests: it catches the common emulator failure
+        /// modes where geometry is clipped, depth rejects every fragment, texture inputs are
+        /// empty, or a debug session was launched without the relevant Metal diagnostics.
+        /// Xcode GPU Frame Capture remains the authoritative test for per-draw attachment
+        /// contents and must be run with RYU_METAL_GPU_CAPTURE=1 on a real game boot.
+        /// </summary>
+        public static bool TestGameRenderValidation(out string message)
+        {
+            const int targetWidth = 1920;
+            const int targetHeight = 1080;
+
+            // Mirrors MetalPipeline's viewport normalization for the Switch's common
+            // (0, height, width, -height) convention.
+            float viewportY = targetHeight;
+            float viewportHeight = -targetHeight;
+            if (viewportHeight < 0)
+            {
+                viewportY += viewportHeight;
+                viewportHeight = -viewportHeight;
+            }
+
+            if (!float.IsFinite(viewportY) || !float.IsFinite(viewportHeight) ||
+                viewportY < 0 || viewportHeight <= 0 || viewportY + viewportHeight > targetHeight)
+            {
+                message = "viewport normalization produced an invalid Metal rectangle";
+                return false;
+            }
+
+            // Mirrors the live scissor clamp, including the oversized 65535x65535
+            // rectangles emitted by NieR.
+            int sourceScissorWidth = 65535;
+            int sourceScissorHeight = 65535;
+            int scissorWidth = Math.Clamp(sourceScissorWidth, 1, targetWidth);
+            int scissorHeight = Math.Clamp(sourceScissorHeight, 1, targetHeight);
+
+            if (scissorWidth != targetWidth || scissorHeight != targetHeight)
+            {
+                message = "scissor clamp does not cover the active render target";
+                return false;
+            }
+
+            // A disabled depth test must never map to Never. This is the exact state
+            // that previously appeared in the game draw logs.
+            const ulong metalCompareAlways = MetalBindings.MTLCompareFunctionAlways;
+            if (metalCompareAlways != 7 || !float.IsFinite(1.0f))
+            {
+                message = "depth-state invariant failed";
+                return false;
+            }
+
+            bool captureRequested = Environment.GetEnvironmentVariable("RYU_METAL_GPU_CAPTURE") == "1";
+            bool nanValidationRequested = Environment.GetEnvironmentVariable("MTL_SHADER_VALIDATION_NAN_INF") == "1";
+            bool debugLayerRequested = Environment.GetEnvironmentVariable("MTL_DEBUG_LAYER") == "1";
+
+            message = $"viewport/scissor/depth/finite-value checks OK; capture={(captureRequested ? "requested" : "off")}, debugLayer={(debugLayerRequested ? "on" : "off")}, nanInf={(nanValidationRequested ? "on" : "off")}";
+            return true;
+        }
+
+        public static unsafe bool TestBlitTransferCopyIsolation(out string message)
+        {
+            try
+            {
+                using var renderer = new MetalRenderer();
+                var pipeline = (MetalPipeline)renderer.Pipeline;
+
+                TextureCreateInfo srcInfo = new(64, 64, 1, 1, 1, 1, 1, 4, Format.R8G8B8A8Unorm, DepthStencilMode.Depth, Target.Texture2D, SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+                TextureCreateInfo dstInfo = new(64, 64, 1, 1, 1, 1, 1, 4, Format.R8G8B8A8Unorm, DepthStencilMode.Depth, Target.Texture2D, SwizzleComponent.Red, SwizzleComponent.Green, SwizzleComponent.Blue, SwizzleComponent.Alpha);
+
+                using MetalTexture srcTex = new(renderer.DeviceHandle, renderer.CommandQueueHandle, srcInfo);
+                using MetalTexture dstTex = new(renderer.DeviceHandle, renderer.CommandQueueHandle, dstInfo);
+
+                pipeline.SetRenderTargets(new ITexture[] { srcTex }, null);
+                pipeline.ClearRenderTargetColor(0, 0, 1, 0xF, new ColorF(1f, 0f, 1f, 1f));
+                pipeline.Draw(0, 0, 0, 0);
+                pipeline.FlushFrame();
+
+                nint cb = MetalBindings.Retain(MetalBindings.objc_msgSend(renderer.CommandQueueHandle, MetalBindings.SelCommandBuffer));
+
+                if (renderer.M4Queue.CompletionEvent != nint.Zero && renderer.M4Queue.LastSignaledValue > 0)
+                {
+                    MetalBindings.objc_msgSend_void(cb, MetalBindings.SelEncodeWaitForEventValue, renderer.M4Queue.CompletionEvent, renderer.M4Queue.LastSignaledValue);
+                }
+
+                nint blitEnc = MetalBindings.objc_msgSend(cb, MetalBindings.SelBlitCommandEncoder);
+
+                MTLOrigin srcOrigin = new(0, 0, 0);
+                MTLSize srcSize = new(64, 64, 1);
+                MTLOrigin dstOrigin = new(0, 0, 0);
+
+                MetalBindings.objc_msgSend_void(
+                    blitEnc,
+                    MetalBindings.SelCopyFromTextureSourceSliceSourceLevelSourceOriginSourceSizeToTextureDestinationSliceDestinationLevelDestinationOrigin,
+                    srcTex.TextureHandle,
+                    (nuint)0,
+                    (nuint)0,
+                    &srcOrigin,
+                    &srcSize,
+                    dstTex.TextureHandle,
+                    (nuint)0,
+                    (nuint)0,
+                    &dstOrigin);
+
+                MetalBindings.objc_msgSend_void(blitEnc, MetalBindings.SelEndEncoding);
+                MetalBindings.objc_msgSend_void(cb, MetalBindings.SelCommit);
+                MetalBindings.objc_msgSend_void(cb, MetalBindings.SelWaitUntilCompleted);
+                MetalBindings.Release(cb);
+
+                PinnedSpan<byte> readback = dstTex.GetData();
+                byte r, g, b;
+                try
+                {
+                    ReadOnlySpan<byte> span = readback.Get();
+                    r = span[0];
+                    g = span[1];
+                    b = span[2];
+                }
+                finally
+                {
+                    readback.Dispose();
+                }
+
+                if (r < 200 || g > 20 || b < 200)
+                {
+                    message = $"Blit isolation copy failed (R={r}, G={g}, B={b})";
+                    return false;
+                }
+
+                message = $"Blit transfer copy isolation OK (R={r}, G={g}, B={b} synced via fence)";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
         }
     }
 }

@@ -151,5 +151,67 @@ namespace Ryujinx.Graphics.Metal
                 _ => MetalBindings.MTLVertexFormatInvalid,
             };
         }
+
+        /// <summary>
+        /// Maps GAL <see cref="SwizzleComponent"/> to a Metal <see cref="MTLTextureSwizzle"/> value.
+        /// </summary>
+        public static byte ToMtlSwizzle(SwizzleComponent swizzle)
+        {
+            return swizzle switch
+            {
+                SwizzleComponent.Zero => MetalBindings.MTLTextureSwizzleZero,
+                SwizzleComponent.One => MetalBindings.MTLTextureSwizzleOne,
+                SwizzleComponent.Red => MetalBindings.MTLTextureSwizzleRed,
+                SwizzleComponent.Green => MetalBindings.MTLTextureSwizzleGreen,
+                SwizzleComponent.Blue => MetalBindings.MTLTextureSwizzleBlue,
+                SwizzleComponent.Alpha => MetalBindings.MTLTextureSwizzleAlpha,
+                _ => MetalBindings.MTLTextureSwizzleRed,
+            };
+        }
+
+        /// <summary>
+        /// Maps GAL <see cref="CompareOp"/> to Metal <see cref="MTLCompareFunction"/>.
+        /// </summary>
+        public static ulong ToMtlCompareFunction(CompareOp op)
+        {
+            return op switch
+            {
+                CompareOp.Never => MetalBindings.MTLCompareFunctionNever,
+                CompareOp.Less => MetalBindings.MTLCompareFunctionLess,
+                CompareOp.Equal => MetalBindings.MTLCompareFunctionEqual,
+                CompareOp.LessOrEqual => MetalBindings.MTLCompareFunctionLessEqual,
+                CompareOp.Greater => MetalBindings.MTLCompareFunctionGreater,
+                CompareOp.NotEqual => MetalBindings.MTLCompareFunctionNotEqual,
+                CompareOp.GreaterOrEqual => MetalBindings.MTLCompareFunctionGreaterEqual,
+                _ => MetalBindings.MTLCompareFunctionAlways,
+            };
+        }
+
+        /// <summary>
+        /// Maps GAL <see cref="StencilOp"/> to Metal <see cref="MTLStencilOperation"/>.
+        /// </summary>
+        public static ulong ToMtlStencilOp(StencilOp op)
+        {
+            return op switch
+            {
+                StencilOp.Keep or StencilOp.KeepGl => MetalBindings.MTLStencilOperationKeep,
+                StencilOp.Zero or StencilOp.ZeroGl => MetalBindings.MTLStencilOperationZero,
+                StencilOp.Replace or StencilOp.ReplaceGl => MetalBindings.MTLStencilOperationReplace,
+                StencilOp.IncrementAndClamp or StencilOp.IncrementAndClampGl => MetalBindings.MTLStencilOperationIncrementClamp,
+                StencilOp.DecrementAndClamp or StencilOp.DecrementAndClampGl => MetalBindings.MTLStencilOperationDecrementClamp,
+                StencilOp.Invert or StencilOp.InvertGl => MetalBindings.MTLStencilOperationInvert,
+                StencilOp.IncrementAndWrap or StencilOp.IncrementAndWrapGl => MetalBindings.MTLStencilOperationIncrementWrap,
+                StencilOp.DecrementAndWrap or StencilOp.DecrementAndWrapGl => MetalBindings.MTLStencilOperationDecrementWrap,
+                _ => MetalBindings.MTLStencilOperationKeep,
+            };
+        }
+
+        /// <summary>
+        /// Checks if the GAL format contains a stencil aspect.
+        /// </summary>
+        public static bool HasStencil(Format format)
+        {
+            return format is Format.D24UnormS8Uint or Format.S8UintD24Unorm or Format.D32FloatS8Uint or Format.S8Uint;
+        }
     }
 }

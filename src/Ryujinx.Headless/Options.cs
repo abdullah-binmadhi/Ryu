@@ -327,6 +327,9 @@ namespace Ryujinx.Headless
         [Option("target-fps", Required = false, Default = 0, HelpText = "Sets the target framerate (e.g. 30, 60, 120). Automatically configures presentation timing and custom refresh.")]
         public int TargetFps { get; set; }
 
+        [Option("fps-log", Required = false, Default = false, HelpText = "Appends per-second FPS / frametime / 1% low / FIFO metrics to Logs/fps_log.csv for benchmarking.")]
+        public bool FpsLog { get; set; }
+
         [Option("custom-refresh-rate", Required = false, Default = 90, HelpText = "Sets the custom refresh rate target value (integer).")]
         public int CustomVSyncInterval { get; set; }
 

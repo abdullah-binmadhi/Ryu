@@ -28,9 +28,19 @@ namespace Ryujinx.Graphics.Metal
         private readonly MetalBufferManager _bufferManager;
         private readonly MetalCommandPool _commandPool;
 
+        // M4: the pipeline render path (the hot path) is encoded on the Metal 4
+        // queue. The M3 queue stays for presentation and resource blits.
+        private readonly Metal4CommandQueue _m4Queue;
+        private readonly Metal4CommandAllocatorPool _m4AllocatorPool;
+        private readonly MetalParallelEncoderPool _m4ParallelPool;
+
         public nint DeviceHandle => _device;
         public nint CommandQueueHandle => _commandQueue;
         public MetalCommandPool CommandPool => _commandPool;
+        public Metal4CommandQueue M4Queue => _m4Queue;
+        public Metal4CommandAllocatorPool M4AllocatorPool => _m4AllocatorPool;
+        public MetalParallelEncoderPool M4ParallelPool => _m4ParallelPool;
+        public MetalTexture LastDrawnTarget => (_pipeline as MetalPipeline)?.LastDrawnTarget;
 
         /// <summary>
         /// Resolves a GAL BufferHandle to its MTLBuffer (or 0 when unknown).
@@ -59,7 +69,10 @@ namespace Ryujinx.Graphics.Metal
 
             _commandPool = new MetalCommandPool(_device, 32);
             _commandQueue = _commandPool.Queue;
-            _bufferManager = new MetalBufferManager(_device);
+            _m4Queue = new Metal4CommandQueue(_device);
+            _bufferManager = new MetalBufferManager(_device, _m4Queue);
+            _m4AllocatorPool = new Metal4CommandAllocatorPool(_device, 32);
+            _m4ParallelPool = new MetalParallelEncoderPool(_device, _m4Queue, _m4AllocatorPool, 32);
             _pipeline = new MetalPipeline(this, _device, _commandQueue);
             _window = new MetalWindow(this, _device, _commandQueue);
 
@@ -146,7 +159,7 @@ namespace Ryujinx.Graphics.Metal
                 memoryType: SystemMemoryType.UnifiedMemory,
                 hasFrontFacingBug: false,
                 hasVectorIndexingBug: false,
-                needsFragmentOutputSpecialization: false,
+                needsFragmentOutputSpecialization: true,
                 reduceShaderPrecision: false,
                 supportsAstcCompression: true,
                 supportsBc123Compression: true,
@@ -185,7 +198,7 @@ namespace Ryujinx.Graphics.Metal
                 supportsViewportMask: false,
                 supportsViewportSwizzle: false,
                 supportsIndirectParameters: true,
-                supportsDepthClipControl: true,
+                supportsDepthClipControl: false,
                 uniformBufferSetIndex: 0,
                 storageBufferSetIndex: 1,
                 textureSetIndex: 2,
@@ -261,6 +274,9 @@ namespace Ryujinx.Graphics.Metal
             _pipeline.Dispose();
             _bufferManager.Dispose();
             _commandPool.Dispose();
+            _m4ParallelPool.Dispose();
+            _m4AllocatorPool.Dispose();
+            _m4Queue.Dispose();
             if (_device != nint.Zero)
             {
                 MetalBindings.objc_msgSend_void(_device, MetalBindings.SelRelease);

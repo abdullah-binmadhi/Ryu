@@ -1,3 +1,5 @@
+using Ryujinx.Common;
+using Ryujinx.Common.Logging;
 using Ryujinx.Common.Memory;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Metal.Interop;
@@ -24,7 +26,7 @@ namespace Ryujinx.Graphics.Metal
         private nint _mtlTexture;
         private bool _disposed;
 
-        private static MetalFormatBlit GetFormatBlit(nint device, nint commandQueue)
+        internal static MetalFormatBlit GetFormatBlit(nint device, nint commandQueue)
         {
             MetalFormatBlit blit = _formatBlit;
             if (blit == null)
@@ -48,18 +50,28 @@ namespace Ryujinx.Graphics.Metal
         /// </summary>
         public nint TextureHandle => _mtlTexture;
 
+        private readonly MetalRenderer _renderer;
+
+        public MetalRenderer Renderer => _renderer;
+
         public MetalTexture(nint device, nint commandQueue, TextureCreateInfo info)
-            : this(device, commandQueue, info, null)
+            : this(null, device, commandQueue, info, null)
+        {
+        }
+
+        public MetalTexture(nint device, nint commandQueue, TextureCreateInfo info, Action flushPendingWork)
+            : this(null, device, commandQueue, info, flushPendingWork)
         {
         }
 
         public MetalTexture(MetalRenderer renderer, TextureCreateInfo info)
-            : this(renderer.DeviceHandle, renderer.CommandQueueHandle, info, renderer.FlushBeforePresent)
+            : this(renderer, renderer.DeviceHandle, renderer.CommandQueueHandle, info, renderer.FlushBeforePresent)
         {
         }
 
-        private MetalTexture(nint device, nint commandQueue, TextureCreateInfo info, Action flushPendingWork)
+        private MetalTexture(MetalRenderer renderer, nint device, nint commandQueue, TextureCreateInfo info, Action flushPendingWork)
         {
+            _renderer = renderer;
             _device = device;
             _commandQueue = commandQueue;
             _info = info;
@@ -69,12 +81,18 @@ namespace Ryujinx.Graphics.Metal
         }
 
         public MetalTexture(nint device, nint commandQueue, TextureCreateInfo info, nint mtlTexture)
-            : this(device, commandQueue, info, mtlTexture, null)
+            : this(null, device, commandQueue, info, mtlTexture, null)
         {
         }
 
-        private MetalTexture(nint device, nint commandQueue, TextureCreateInfo info, nint mtlTexture, Action flushPendingWork)
+        public MetalTexture(nint device, nint commandQueue, TextureCreateInfo info, nint mtlTexture, Action flushPendingWork)
+            : this(null, device, commandQueue, info, mtlTexture, flushPendingWork)
         {
+        }
+
+        private MetalTexture(MetalRenderer renderer, nint device, nint commandQueue, TextureCreateInfo info, nint mtlTexture, Action flushPendingWork)
+        {
+            _renderer = renderer;
             _device = device;
             _commandQueue = commandQueue;
             _info = info;
@@ -84,16 +102,12 @@ namespace Ryujinx.Graphics.Metal
             if (_mtlTexture != nint.Zero)
             {
                 MetalBindings.Retain(_mtlTexture);
+                _renderer?.M4Queue.AddResidencyResource(_mtlTexture);
             }
         }
 
         private void AllocateTexture()
         {
-            if (_info.IsCompressed)
-            {
-                return; // compressed formats not supported yet
-            }
-
             ulong pixelFormat = MetalFormats.ToMtlPixelFormat(_info.Format);
 
             if (pixelFormat == 0)
@@ -196,13 +210,22 @@ namespace Ryujinx.Graphics.Metal
                 MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetArrayLength, arrayLength);
             }
 
-            MetalBindings.objc_msgSend_void(
-                descriptor,
-                MetalBindings.SelSetUsage,
-                (nuint)(MetalBindings.MTLTextureUsageShaderRead | MetalBindings.MTLTextureUsageRenderTarget));
+            // Compressed formats (ASTC, BCn, ETC2) in Metal cannot be used as render targets or shader write.
+            nuint usage = (nuint)MetalBindings.MTLTextureUsageShaderRead;
+            if (!_info.IsCompressed)
+            {
+                usage |= (nuint)(MetalBindings.MTLTextureUsageShaderWrite | MetalBindings.MTLTextureUsageRenderTarget);
+            }
+
+            MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetUsage, usage);
 
             _mtlTexture = MetalBindings.objc_msgSend(_device, MetalBindings.SelNewTextureWithDescriptor, descriptor);
-            _mtlTexture = MetalBindings.Retain(_mtlTexture);
+            _renderer?.M4Queue.AddResidencyResource(_mtlTexture);
+
+            if (_info.Width >= 960 || _info.Height >= 540)
+            {
+                Logger.Warning?.Print(LogClass.Gpu, $"[TEX_ALLOC] handle=0x{_mtlTexture:X} {_info.Width}x{_info.Height} {_info.Format} target={_info.Target} levels={_info.Levels} usage=0x{usage:X}");
+            }
 
             if (descriptorOwned)
             {
@@ -258,14 +281,24 @@ namespace Ryujinx.Graphics.Metal
             int dstWidth = dstRegion.X2 - dstRegion.X1;
             int dstHeight = dstRegion.Y2 - dstRegion.Y1;
 
-            // Metal blits cannot scale. The current presentation path uses matching
-            // extents; scaled copies need the helper-shader path.
-            if (srcWidth <= 0 || srcHeight <= 0 || srcWidth != dstWidth || srcHeight != dstHeight)
+            if (srcWidth <= 0 || srcHeight <= 0 || dstWidth <= 0 || dstHeight <= 0)
             {
                 return;
             }
 
-            CopyRegion(dstMetal, 0, 0, 0, 0, srcRegion.X1, srcRegion.Y1, dstRegion.X1, dstRegion.Y1, srcWidth, srcHeight);
+            _flushPendingWork?.Invoke();
+            dstMetal._flushPendingWork?.Invoke();
+
+            // Same-size same-format fast blit path:
+            if (srcWidth == dstWidth && srcHeight == dstHeight && srcRegion.X1 >= 0 && srcRegion.Y1 >= 0 && dstRegion.X1 >= 0 && dstRegion.Y1 >= 0 && _info.Format == dstMetal._info.Format)
+            {
+                CopyRegion(dstMetal, 0, 0, 0, 0, srcRegion.X1, srcRegion.Y1, dstRegion.X1, dstRegion.Y1, srcWidth, srcHeight);
+            }
+            else
+            {
+                // Scaled or format-converting GPU copy pass:
+                GetFormatBlit(_device, _commandQueue).Copy(this, dstMetal, srcRegion, dstRegion, linearFilter);
+            }
         }
 
         private static int MipSize(int size, int level) => Math.Max(1, size >> level);
@@ -276,6 +309,11 @@ namespace Ryujinx.Graphics.Metal
                 srcLayer < 0 || dstLayer < 0 || srcLevel < 0 || dstLevel < 0 || width <= 0 || height <= 0)
             {
                 return;
+            }
+
+            if (width >= 960 || height >= 540)
+            {
+                Logger.Warning?.Print(LogClass.Gpu, $"[TEX_COPY] src=0x{_mtlTexture:X} ({_info.Format}) -> dst=0x{destination.TextureHandle:X} ({destination._info.Format}) {width}x{height} srcPos=({srcX},{srcY}) dstPos=({dstX},{dstY})");
             }
 
             _flushPendingWork?.Invoke();
@@ -314,6 +352,11 @@ namespace Ryujinx.Graphics.Metal
             if (commandBuffer == nint.Zero)
             {
                 return;
+            }
+
+            if (_renderer != null && _renderer.M4Queue.CompletionEvent != nint.Zero && _renderer.M4Queue.LastSignaledValue > 0)
+            {
+                MetalBindings.objc_msgSend_void(commandBuffer, MetalBindings.SelEncodeWaitForEventValue, _renderer.M4Queue.CompletionEvent, _renderer.M4Queue.LastSignaledValue);
             }
 
             nint blitEncoder = MetalBindings.objc_msgSend(commandBuffer, MetalBindings.SelBlitCommandEncoder);
@@ -359,25 +402,153 @@ namespace Ryujinx.Graphics.Metal
             }
         }
 
-        public void CopyTo(BufferRange range, int layer, int level, int stride) { }
+        public unsafe void CopyTo(BufferRange range, int layer, int level, int stride)
+        {
+            if (_mtlTexture == nint.Zero || _renderer == null || _commandQueue == nint.Zero)
+            {
+                return;
+            }
+
+            nint dstBuffer = _renderer.GetBuffer(range.Handle);
+            if (dstBuffer == nint.Zero)
+            {
+                return;
+            }
+
+            int mipW = Math.Max(1, _info.Width  >> level);
+            int mipH = Math.Max(1, _info.Height >> level);
+
+            int blockWidth  = Math.Max(1, _info.BlockWidth);
+            int blockHeight = Math.Max(1, _info.BlockHeight);
+            int blocksX = (mipW + blockWidth  - 1) / blockWidth;
+            int blocksY = (mipH + blockHeight - 1) / blockHeight;
+
+            // stride == 0 means packed; use natural row stride aligned to 4 bytes.
+            int bytesPerRow = stride > 0
+                ? stride
+                : (int)BitUtils.AlignUp(blocksX * _info.BytesPerPixel, 4);
+            int bytesPerImage = bytesPerRow * blocksY;
+
+            nint commandBuffer = MetalBindings.Retain(MetalBindings.objc_msgSend(_commandQueue, MetalBindings.SelCommandBuffer));
+            if (commandBuffer == nint.Zero)
+            {
+                return;
+            }
+
+            // Wait for any in-flight GPU work on this texture to complete before reading.
+            if (_renderer.M4Queue.CompletionEvent != nint.Zero && _renderer.M4Queue.LastSignaledValue > 0)
+            {
+                MetalBindings.objc_msgSend_void(commandBuffer, MetalBindings.SelEncodeWaitForEventValue,
+                    _renderer.M4Queue.CompletionEvent, _renderer.M4Queue.LastSignaledValue);
+            }
+
+            nint blitEncoder = MetalBindings.objc_msgSend(commandBuffer, MetalBindings.SelBlitCommandEncoder);
+            if (blitEncoder == nint.Zero)
+            {
+                MetalBindings.Release(commandBuffer);
+                return;
+            }
+
+            MTLOrigin srcOrigin = new(0, 0, 0);
+            MTLSize   srcSize   = new((nuint)mipW, (nuint)mipH, 1);
+
+            MetalBindings.objc_msgSend_void_blitCopyToBuffer(
+                blitEncoder,
+                MetalBindings.SelCopyFromTextureToBuffer,
+                _mtlTexture,
+                (nuint)layer,
+                (nuint)level,
+                srcOrigin,
+                srcSize,
+                dstBuffer,
+                (nuint)range.Offset,
+                (nuint)bytesPerRow,
+                (nuint)bytesPerImage);
+
+            MetalBindings.objc_msgSend_void(blitEncoder, MetalBindings.SelEndEncoding);
+            MetalBindings.objc_msgSend_void(commandBuffer, MetalBindings.SelCommit);
+            MetalBindings.objc_msgSend_void(commandBuffer, MetalBindings.SelWaitUntilCompleted);
+            MetalBindings.Release(commandBuffer);
+        }
+
+
+        internal static ulong ToMtlTextureType(Target target)
+        {
+            return target switch
+            {
+                Target.Texture2D => MetalBindings.MTLTextureType2D,
+                Target.Texture2DMultisample => MetalBindings.MTLTextureType2DMultisample,
+                Target.Texture2DArray => MetalBindings.MTLTextureType2DArray,
+                Target.Cubemap => MetalBindings.MTLTextureTypeCube,
+                Target.CubemapArray => MetalBindings.MTLTextureTypeCubeArray,
+                Target.Texture3D => MetalBindings.MTLTextureType3D,
+                _ => MetalBindings.MTLTextureType2D,
+            };
+        }
 
         public ITexture CreateView(TextureCreateInfo info, int firstLayer, int firstLevel)
         {
             ulong pixelFormat = MetalFormats.ToMtlPixelFormat(info.Format);
             if (pixelFormat == 0 || _mtlTexture == nint.Zero)
             {
-                return new MetalTexture(_device, _commandQueue, info, _flushPendingWork);
+                return new MetalTexture(_renderer, _device, _commandQueue, info, _flushPendingWork);
             }
 
-            nint viewHandle = MetalBindings.objc_msgSend(_mtlTexture, MetalBindings.SelNewTextureViewWithPixelFormat, pixelFormat);
+            ulong textureType = ToMtlTextureType(info.Target);
+
+            nint viewHandle = nint.Zero;
+
+            MTLTextureSwizzleChannels swizzle = new(
+                MetalFormats.ToMtlSwizzle(info.SwizzleR),
+                MetalFormats.ToMtlSwizzle(info.SwizzleG),
+                MetalFormats.ToMtlSwizzle(info.SwizzleB),
+                MetalFormats.ToMtlSwizzle(info.SwizzleA));
+
+            if (!swizzle.IsIdentity)
+            {
+                viewHandle = MetalBindings.objc_msgSend(
+                    _mtlTexture,
+                    MetalBindings.SelNewTextureViewWithPixelFormatTextureTypeLevelsSlicesSwizzle,
+                    (nuint)pixelFormat,
+                    (nuint)textureType,
+                    (nuint)firstLevel,
+                    (nuint)Math.Max(1, info.Levels),
+                    (nuint)firstLayer,
+                    (nuint)Math.Max(1, info.GetLayers()),
+                    swizzle);
+            }
 
             if (viewHandle == nint.Zero)
             {
-                return new MetalTexture(_device, _commandQueue, info, _flushPendingWork);
+                viewHandle = MetalBindings.objc_msgSend(
+                    _mtlTexture,
+                    MetalBindings.SelNewTextureViewWithPixelFormatTextureTypeLevelsSlices,
+                    (nuint)pixelFormat,
+                    (nuint)textureType,
+                    (nuint)firstLevel,
+                    (nuint)Math.Max(1, info.Levels),
+                    (nuint)firstLayer,
+                    (nuint)Math.Max(1, info.GetLayers()));
             }
 
-            MetalTexture view = new MetalTexture(_device, _commandQueue, info, viewHandle, _flushPendingWork);
+            if (viewHandle == nint.Zero)
+            {
+                viewHandle = MetalBindings.objc_msgSend(_mtlTexture, MetalBindings.SelNewTextureViewWithPixelFormat, pixelFormat);
+            }
+
+            if (viewHandle == nint.Zero)
+            {
+                return new MetalTexture(_renderer, _device, _commandQueue, info, _flushPendingWork);
+            }
+
+            MetalTexture view = new MetalTexture(_renderer, _device, _commandQueue, info, viewHandle, _flushPendingWork);
             MetalBindings.Release(viewHandle);
+
+            if (info.Width >= 960 || info.Height >= 540)
+            {
+                Logger.Warning?.Print(LogClass.Gpu, $"[TEX_VIEW] viewHandle=0x{view.TextureHandle:X} parentHandle=0x{_mtlTexture:X} {info.Width}x{info.Height} {info.Format} target={info.Target} firstLayer={firstLayer} firstLevel={firstLevel}");
+            }
+
             return view;
         }
 
@@ -392,8 +563,14 @@ namespace Ryujinx.Graphics.Metal
 
             int width = Math.Max(1, _info.Width >> level);
             int height = Math.Max(1, _info.Height >> level);
-            int bytesPerRow = width * _info.BytesPerPixel;
-            int size = bytesPerRow * height;
+
+            int blockWidth = Math.Max(1, _info.BlockWidth);
+            int blockHeight = Math.Max(1, _info.BlockHeight);
+            int blocksX = (width + blockWidth - 1) / blockWidth;
+            int blocksY = (height + blockHeight - 1) / blockHeight;
+
+            int bytesPerRow = blocksX * _info.BytesPerPixel;
+            int size = bytesPerRow * blocksY;
 
             byte[] buffer = new byte[size];
             GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
@@ -410,7 +587,7 @@ namespace Ryujinx.Graphics.Metal
                         MetalBindings.SelGetBytesBytesPerRowBytesPerImageFromRegionMipmapLevelSlice,
                         (void*)handle.AddrOfPinnedObject(),
                         (nuint)bytesPerRow,
-                        (nuint)(bytesPerRow * height),
+                        (nuint)size,
                         &region,
                         (nuint)level,
                         (nuint)layer);
@@ -437,12 +614,51 @@ namespace Ryujinx.Graphics.Metal
             }
         }
 
-        public void SetData(MemoryOwner<byte> data) => SetData(data, 0, 0);
-
-        public void SetData(MemoryOwner<byte> data, int layer, int level)
+        public void SetData(MemoryOwner<byte> data)
         {
-            SetData(data, layer, level, new Rectangle<int>(0, 0, _info.Width, _info.Height));
+            if (_info.Levels <= 1 && _info.GetLayers() <= 1)
+            {
+                // Fast path: single-layer, single-level texture. Just upload level 0.
+                SetData(data, 0, 0);
+                return;
+            }
+
+            // Multi-mip or multi-layer: iterate all layers and levels, slicing
+            // the concatenated data buffer by the correct per-level mip size.
+            int offset = 0;
+            int layers = _info.GetLayers();
+            ReadOnlySpan<byte> src = data.Span;
+
+            for (int level = 0; level < _info.Levels; level++)
+            {
+                int mipLevelWidth  = Math.Max(1, _info.Width  >> level);
+                int mipLevelHeight = Math.Max(1, _info.Height >> level);
+                int blockWidth  = Math.Max(1, _info.BlockWidth);
+                int blockHeight = Math.Max(1, _info.BlockHeight);
+                int blocksX = (mipLevelWidth  + blockWidth  - 1) / blockWidth;
+                int blocksY = (mipLevelHeight + blockHeight - 1) / blockHeight;
+                int bytesPerRow   = blocksX * _info.BytesPerPixel;
+                int bytesPerSlice = bytesPerRow * blocksY;
+
+                for (int layer = 0; layer < layers; layer++)
+                {
+                    int sliceEnd = offset + bytesPerSlice;
+                    if (sliceEnd > src.Length)
+                    {
+                        break;
+                    }
+
+                    using MemoryOwner<byte> sliceData = MemoryOwner<byte>.Rent(bytesPerSlice);
+                    src.Slice(offset, bytesPerSlice).CopyTo(sliceData.Span);
+                    SetData(sliceData, layer, level, new Rectangle<int>(0, 0, mipLevelWidth, mipLevelHeight));
+
+                    offset += bytesPerSlice;
+                }
+            }
+
+            data.Dispose();
         }
+
 
         public unsafe void SetData(MemoryOwner<byte> data, int layer, int level, Rectangle<int> region)
         {
@@ -451,7 +667,22 @@ namespace Ryujinx.Graphics.Metal
                 if (_mtlTexture != nint.Zero && !_disposed && region.Width > 0 && region.Height > 0)
                 {
                     MTLRegion mtlRegion = new((nuint)region.X, (nuint)region.Y, 0, (nuint)region.Width, (nuint)region.Height, 1);
-                    int bytesPerRow = region.Width * _info.BytesPerPixel;
+
+                    int blockWidth = Math.Max(1, _info.BlockWidth);
+                    int blockHeight = Math.Max(1, _info.BlockHeight);
+                    int blocksX = (region.Width + blockWidth - 1) / blockWidth;
+                    int blocksY = (region.Height + blockHeight - 1) / blockHeight;
+
+                    int bytesPerRow = blocksX * _info.BytesPerPixel;
+                    int bytesPerImage = bytesPerRow * blocksY;
+
+                    if (Width >= 960 || Height >= 540)
+                    {
+                        int sampleSize = Math.Min(data.Span.Length, 64);
+                        int nonzero = 0;
+                        for (int i = 0; i < sampleSize; i++) if (data.Span[i] != 0) nonzero++;
+                        Logger.Warning?.Print(LogClass.Gpu, $"[TEX_SETDATA] handle=0x{_mtlTexture:X} {Width}x{Height} region=({region.X},{region.Y},{region.Width},{region.Height}) layer={layer} level={level} len={data.Span.Length} sampleNonzero={nonzero}/{sampleSize}");
+                    }
 
                     fixed (byte* p = data.Span)
                     {
@@ -466,7 +697,7 @@ namespace Ryujinx.Graphics.Metal
                                 (nuint)layer,
                                 p,
                                 (nuint)bytesPerRow,
-                                (nuint)(bytesPerRow * region.Height));
+                                (nuint)bytesPerImage);
                         }
                         else
                         {
@@ -486,6 +717,17 @@ namespace Ryujinx.Graphics.Metal
                 data.Dispose();
             }
         }
+
+        public void SetData(MemoryOwner<byte> data, int layer, int level)
+        {
+            // Use correct mip-level dimensions rather than mip-0 Width/Height.
+            // Passing mip-0 size for level > 0 causes out-of-bounds copies and
+            // the "rectangular slab" Maxwell texture deswizzle corruption.
+            int mipW = Math.Max(1, _info.Width  >> level);
+            int mipH = Math.Max(1, _info.Height >> level);
+            SetData(data, layer, level, new Rectangle<int>(0, 0, mipW, mipH));
+        }
+
 
         public void SetStorage(BufferRange buffer) { }
 
@@ -520,6 +762,7 @@ namespace Ryujinx.Graphics.Metal
         private bool _disposed;
 
         public nint SamplerState => _samplerState;
+        public SamplerCreateInfo Info => _info;
 
         public MetalSampler(nint device, SamplerCreateInfo info)
         {
@@ -542,8 +785,8 @@ namespace Ryujinx.Graphics.Metal
 
             try
             {
-                // Min/mag filter from MinFilter/MagFilter; address modes from WrapS/WrapT.
-                ulong minFilter = _info.MinFilter == MinFilter.Linear
+                // Min/mag filter from MinFilter/MagFilter; address modes from WrapS/WrapT/WrapR.
+                ulong minFilter = _info.MinFilter is MinFilter.Linear or MinFilter.LinearMipmapLinear or MinFilter.LinearMipmapNearest
                     ? MetalBindings.MTLSamplerMinMagFilterLinear
                     : MetalBindings.MTLSamplerMinMagFilterNearest;
 
@@ -551,16 +794,40 @@ namespace Ryujinx.Graphics.Metal
                     ? MetalBindings.MTLSamplerMinMagFilterLinear
                     : MetalBindings.MTLSamplerMinMagFilterNearest;
 
+                ulong mipFilter = _info.MinFilter switch
+                {
+                    MinFilter.NearestMipmapNearest or MinFilter.LinearMipmapNearest => MetalBindings.MTLSamplerMipFilterNearest,
+                    MinFilter.NearestMipmapLinear or MinFilter.LinearMipmapLinear => MetalBindings.MTLSamplerMipFilterLinear,
+                    _ => MetalBindings.MTLSamplerMipFilterNotMipmapped,
+                };
+
                 MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetMinFilter, (nuint)minFilter);
                 MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetMagFilter, (nuint)magFilter);
+                MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetMipFilter, (nuint)mipFilter);
 
                 ulong sAddress = ToAddressMode(_info.AddressU);
                 ulong tAddress = ToAddressMode(_info.AddressV);
+                ulong rAddress = ToAddressMode(_info.AddressP);
 
                 MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetSAddressMode, (nuint)sAddress);
                 MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetTAddressMode, (nuint)tAddress);
+                MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetRAddressMode, (nuint)rAddress);
 
-                MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetMipFilter, (nuint)MetalBindings.MTLSamplerMipFilterLinear);
+                if (_info.CompareMode != CompareMode.None)
+                {
+                    MetalBindings.objc_msgSend_void(descriptor, MetalBindings.SelSetCompareFunction, (nuint)MetalFormats.ToMtlCompareFunction(_info.CompareOp));
+                }
+
+                if (mipFilter == MetalBindings.MTLSamplerMipFilterNotMipmapped)
+                {
+                    MetalBindings.objc_msgSend_float(descriptor, MetalBindings.SelSetLodMinClamp, 0f);
+                    MetalBindings.objc_msgSend_float(descriptor, MetalBindings.SelSetLodMaxClamp, 0f);
+                }
+                else
+                {
+                    MetalBindings.objc_msgSend_float(descriptor, MetalBindings.SelSetLodMinClamp, Math.Max(0f, _info.MinLod));
+                    MetalBindings.objc_msgSend_float(descriptor, MetalBindings.SelSetLodMaxClamp, Math.Max(0f, _info.MaxLod));
+                }
 
                 if (_info.MaxAnisotropy > 1)
                 {
@@ -568,7 +835,6 @@ namespace Ryujinx.Graphics.Metal
                 }
 
                 _samplerState = MetalBindings.objc_msgSend(_device, MetalBindings.SelNewSamplerStateWithDescriptor, descriptor);
-                _samplerState = MetalBindings.Retain(_samplerState);
             }
             finally
             {
