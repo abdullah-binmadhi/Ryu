@@ -239,7 +239,7 @@ namespace Ryujinx.Headless
                         options.IgnoreMissingServices,
                         options.AspectRatio,
                         options.AudioVolume,
-                        options.UseHypervisor ?? true,
+                        options.EffectiveUseHypervisor,
                         options.MultiplayerLanInterfaceId,
                         Common.Configuration.Multiplayer.MultiplayerMode.Disabled,
                         false,

@@ -363,6 +363,13 @@ namespace Ryujinx.Headless
         [Option("use-hypervisor", Required = false, Default = true, HelpText = "Uses Hypervisor over JIT if available.")]
         public bool? UseHypervisor { get; set; }
 
+        [Option("cpu-backend", Required = false, HelpText = "Target CPU backend (hypervisor or jit).")]
+        public string CpuBackend { get; set; }
+
+        public bool EffectiveUseHypervisor => !string.IsNullOrEmpty(CpuBackend)
+            ? CpuBackend.Equals("hypervisor", StringComparison.OrdinalIgnoreCase)
+            : (UseHypervisor ?? true);
+
         [Option("lan-interface-id", Required = false, Default = "0", HelpText = "GUID for the network interface used by LAN.")]
         public string MultiplayerLanInterfaceId { get; set; }
 
